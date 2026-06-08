@@ -12,6 +12,7 @@ export default defineConfig({
           three: ['three', '@react-three/fiber', '@react-three/drei'],
           motion: ['framer-motion'],
           charts: ['recharts'],
+          xlsx: ['xlsx'],
         },
       },
     },
