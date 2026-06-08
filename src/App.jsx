@@ -9,6 +9,7 @@ import { useLiveData } from "./lib/useLiveData.js";
 import { auth } from "./lib/auth.js";
 import Login from "./screens/Login.jsx";
 import Dashboard from "./screens/Dashboard.jsx";
+import WelcomeScreen from "./screens/WelcomeScreen.jsx";
 import {
   RevitScreen, LiveScreen, TeamsScreen, EmployeesScreen,
   AnalyticsScreen, ReportsScreen, HistoryScreen, AdminScreen, SettingsScreen,
@@ -34,6 +35,7 @@ export default function App() {
   const [route, setRoute] = useState("dashboard");
   const [theme, setTheme] = useState(() => localStorage.getItem("ti.theme") || "dark");
   const [motionQuality, setMotionQuality] = useState(() => localStorage.getItem("ti.motion") || detectTier());
+  const [showWelcome, setShowWelcome] = useState(() => !sessionStorage.getItem("ti.welcomed"));
 
   const { data, live, refresh } = useLiveData();
   useLenis();
@@ -80,6 +82,12 @@ export default function App() {
   return (
     <ToastProvider>
       <AmbientBackground theme={theme} quality={motionQuality} />
+      <AnimatePresence>
+        {showWelcome && motionQuality !== "off" && (
+          <WelcomeScreen key="welcome" name={me?.name}
+            onDone={() => { setShowWelcome(false); sessionStorage.setItem("ti.welcomed", "1"); }} />
+        )}
+      </AnimatePresence>
       <Sidebar route={route} setRoute={setRoute} me={me} />
       <main style={{ marginLeft: 248, padding: "24px 28px 60px", position: "relative", zIndex: 1 }}>
         <Topbar
