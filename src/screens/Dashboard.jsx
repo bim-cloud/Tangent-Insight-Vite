@@ -7,6 +7,20 @@ import { exportCsv } from "../lib/util.js";
 
 const STATUS_COLORS = { online: "#10b981", meeting: "#a78bfa", idle: "#f59e0b", offline: "#475569" };
 
+function DeptTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      background: "rgba(17,21,32,0.96)", backdropFilter: "blur(8px)",
+      border: "1px solid rgb(34 211 238 / 0.3)", borderRadius: 10,
+      padding: "8px 12px", fontSize: 12, boxShadow: "0 8px 24px -8px rgba(0,0,0,0.5)",
+    }}>
+      <div style={{ fontWeight: 600, color: "#fff", marginBottom: 2 }}>{label}</div>
+      <div style={{ color: "#22d3ee" }}>{payload[0].value} {payload[0].value === 1 ? "person" : "people"}</div>
+    </div>
+  );
+}
+
 export default function Dashboard({ data, setRoute }) {
   const { people, kpis, activity, heatmap } = data;
 
@@ -37,16 +51,15 @@ export default function Dashboard({ data, setRoute }) {
           <CardTitle title="Workforce by department" subtitle="Live headcount" icon="Building2"
             right={<button className="btn btn-secondary btn-sm" onClick={() => exportCsv("workforce", deptData)}><Icon name="Download" size={12} /> Export</button>} />
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={deptData}>
-              <XAxis dataKey="name" tick={{ fill: "rgb(130 140 158)", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip cursor={{ fill: "rgba(34,211,238,0.06)" }}
-                contentStyle={{ background: "rgb(17 21 32)", border: "1px solid rgb(38 44 60)", borderRadius: 10, fontSize: 12 }} />
-              <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="url(#barGrad)" animationDuration={900} />
+            <BarChart data={deptData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
               <defs>
                 <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#3b82f6" />
+                  <stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#6366f1" />
                 </linearGradient>
               </defs>
+              <XAxis dataKey="name" tick={{ fill: "rgb(130 140 158)", fontSize: 11 }} axisLine={false} tickLine={false} interval={0} angle={-15} textAnchor="end" height={48} />
+              <Tooltip cursor={{ fill: "rgba(34,211,238,0.08)", radius: 6 }} content={<DeptTooltip />} />
+              <Bar dataKey="value" radius={[8, 8, 0, 0]} fill="url(#barGrad)" animationDuration={1100} animationEasing="ease-out" maxBarSize={54} />
             </BarChart>
           </ResponsiveContainer>
         </div>

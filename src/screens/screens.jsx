@@ -4,6 +4,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, PieChart, Pie, Cell
 import { Icon, CardTitle, Avatar, Pill } from "../components/primitives.jsx";
 import { staggerGrid, riseItem, spring } from "../motion/variants.js";
 import { exportCsv, copyText } from "../lib/util.js";
+import { exportAttendanceXlsx, exportProjectsXlsx, exportReportXlsx } from "../lib/excel.js";
 import { auth } from "../lib/auth.js";
 import { rest, SUPABASE_URL, SUPABASE_ANON } from "../lib/data.js";
 
@@ -24,10 +25,7 @@ export function RevitScreen({ data }) {
     <motion.div variants={staggerGrid} initial="initial" animate="animate">
       <div className="between" style={{ marginBottom: 14 }}>
         <div className="muted" style={{ fontSize: 12.5 }}>{projects.length} central models tracked from the Revit plugin</div>
-        <button className="btn btn-secondary btn-sm" onClick={() => exportCsv("revit-projects", projects.map((p) => ({
-          project: p.code, active_users: p.activeUsers, total_users: p.totalUsers, worksets: p.worksets,
-          open_views: p.openViews, warnings: p.warnings, linked_models: p.linkedModels, model_size_mb: p.modelSize, version: p.version,
-        })))}><Icon name="Download" size={12} /> Export</button>
+        <button className="btn btn-secondary btn-sm" onClick={() => exportProjectsXlsx(projects, data.people)}><Icon name="FileSpreadsheet" size={12} /> Export Excel</button>
       </div>
       {projects.length === 0 ? (
         <div className="surface" style={card}><Empty>No projects yet. They appear once an agent or the Revit plugin observes a central model open.</Empty></div>
@@ -180,30 +178,43 @@ export function EmployeesScreen({ data }) {
   const { people } = data;
   const [q, setQ] = useState("");
   const filtered = people.filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || p.dept.toLowerCase().includes(q.toLowerCase()));
+  const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className="between" style={{ marginBottom: 14 }}>
         <input className="input" placeholder="Search people…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320 }} />
-        <button className="btn btn-secondary btn-sm" onClick={() => exportCsv("employees", people.map((p) => ({
-          name: p.name, email: p.email, dept: p.dept, role: p.role, discipline: p.discipline, status: p.status, project: p.project, hours: p.hours, overtime: p.ot, utilization_pct: p.utilization, machine: p.machine,
-        })))}><Icon name="Download" size={12} /> Export CSV</button>
+        <div className="row gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={() => exportCsv("employees", people.map((p) => ({
+            name: p.name, email: p.email, dept: p.dept, role: p.role, status: p.status, project: p.project,
+            active_h: (p.focusMin / 60).toFixed(2), idle_h: (p.idleMin / 60).toFixed(2),
+            hours: p.hours, overtime: p.ot, utilization_pct: p.utilization, machine: p.machine,
+          })))}><Icon name="Download" size={12} /> CSV</button>
+          <button className="btn btn-primary btn-sm" onClick={() => exportAttendanceXlsx(people, { rangeLabel: "Today" })}>
+            <Icon name="FileSpreadsheet" size={12} /> Excel
+          </button>
+        </div>
       </div>
       <div className="surface" style={{ padding: 0, overflow: "hidden" }}>
         <table>
-          <thead><tr><th>Name</th><th>Dept</th><th>Role</th><th>Status</th><th>Project</th><th>Hours</th><th>Util</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Dept</th><th>Status</th><th>Active</th><th>Idle</th><th>Total PC</th><th>Productive</th><th>Overtime</th><th>Util</th><th></th></tr></thead>
           <tbody>
-            {filtered.map((p) => (
-              <tr key={p.id}>
-                <td><div className="row gap-2"><Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={28} /><span style={{ fontWeight: 600 }}>{p.name}</span></div></td>
-                <td className="muted">{p.dept}</td>
-                <td className="muted">{p.role}</td>
-                <td><Pill tone={p.status === "online" ? "success" : p.status === "meeting" ? "info" : p.status === "idle" ? "warning" : "neutral"} dot>{p.status}</Pill></td>
-                <td className="mono" style={{ fontSize: 11.5 }}>{p.project}</td>
-                <td className="tabular">{p.hours.toFixed(1)}h</td>
-                <td className="tabular">{p.utilization}%</td>
-                <td><button className="btn btn-ghost btn-icon" title="Copy email" onClick={() => copyText(p.email)}><Icon name="Mail" size={13} /></button></td>
-              </tr>
-            ))}
+            {filtered.map((p) => {
+              const totalPc = p.focusMin + p.idleMin;
+              return (
+                <tr key={p.id}>
+                  <td><div className="row gap-2"><Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={28} /><div><div style={{ fontWeight: 600 }}>{p.name}</div><div className="muted" style={{ fontSize: 10.5 }}>{p.role}</div></div></div></td>
+                  <td className="muted">{p.dept}</td>
+                  <td><Pill tone={p.status === "online" ? "success" : p.status === "meeting" ? "info" : p.status === "idle" ? "warning" : "neutral"} dot>{p.status}</Pill></td>
+                  <td className="tabular" style={{ color: "rgb(var(--success))" }}>{fmtHM(p.focusMin)}</td>
+                  <td className="tabular muted">{fmtHM(p.idleMin)}</td>
+                  <td className="tabular">{fmtHM(totalPc)}</td>
+                  <td className="tabular">{p.hours.toFixed(1)}h</td>
+                  <td className="tabular" style={{ color: p.ot > 0.5 ? "rgb(var(--warning))" : "rgb(var(--fg-muted))" }}>{p.ot.toFixed(1)}h</td>
+                  <td><div className="row gap-2"><div style={{ width: 36, height: 5, borderRadius: 3, background: "rgb(var(--bg-sunken))", overflow: "hidden" }}><div style={{ width: p.utilization + "%", height: "100%", background: "var(--grad-cyan)" }} /></div><span className="tabular" style={{ fontSize: 11 }}>{p.utilization}%</span></div></td>
+                  <td><button className="btn btn-ghost btn-icon" title="Copy email" onClick={() => copyText(p.email)}><Icon name="Mail" size={13} /></button></td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -245,24 +256,77 @@ export function AnalyticsScreen({ data }) {
 
 // ---------- REPORTS ----------
 export function ReportsScreen({ data }) {
-  const { people } = data;
+  const { people, projects } = data;
   const [days, setDays] = useState(7);
-  const [fmt, setFmt] = useState("CSV");
-  function generate() {
-    const rows = people.map((p) => ({ name: p.name, email: p.email, dept: p.dept, role: p.role, status: p.status, hours: p.hours, overtime: p.ot, utilization_pct: p.utilization }));
-    if (fmt === "JSON") { const blob = new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "tangent-report.json"; a.click(); }
-    else exportCsv("tangent-report", rows);
+  const [dept, setDept] = useState("all");
+  const [proj, setProj] = useState("all");
+  const [reportType, setReportType] = useState("attendance");
+  const depts = ["all", ...new Set(people.map((p) => p.dept))];
+  const projCodes = ["all", ...projects.map((p) => p.code)];
+
+  function filteredPeople() {
+    return people.filter((p) => (dept === "all" || p.dept === dept) && (proj === "all" || p.project === proj));
   }
+  function rangeLabel() { return days === 1 ? "Last 24 hours" : `Last ${days} days`; }
+
+  function generateExcel() {
+    if (reportType === "attendance") {
+      exportAttendanceXlsx(filteredPeople(), { rangeLabel: rangeLabel() });
+    } else if (reportType === "projects") {
+      const ps = proj === "all" ? projects : projects.filter((p) => p.code === proj);
+      exportProjectsXlsx(ps, filteredPeople());
+    } else {
+      exportReportXlsx("tangent-utilization", "Utilization Report",
+        filteredPeople().map((p) => ({ Employee: p.name, Department: p.dept, Role: p.role,
+          "Active (h)": +(p.focusMin / 60).toFixed(2), "Idle (h)": +(p.idleMin / 60).toFixed(2),
+          "Hours": p.hours, "Overtime": p.ot, "Utilization %": p.utilization })),
+        ["Employee", "Department", "Role", "Active (h)", "Idle (h)", "Hours", "Overtime", "Utilization %"]);
+    }
+  }
+
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
       <div className="surface" style={card}>
-        <CardTitle title="Build a report" subtitle="Live data · download CSV or JSON" icon="FileBarChart" />
-        <div className="grid" style={{ gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 14 }}>
-          <Field label="Range"><select className="input" value={days} onChange={(e) => setDays(+e.target.value)}><option value={1}>Last 24h</option><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option></select></Field>
-          <Field label="Format"><select className="input" value={fmt} onChange={(e) => setFmt(e.target.value)}><option>CSV</option><option>JSON</option></select></Field>
-          <Field label=" "><button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={generate}><Icon name="Download" size={13} /> Generate {fmt}</button></Field>
+        <CardTitle title="Report builder" subtitle="Filter, then export to the Tangent Excel template" icon="FileBarChart" />
+        <div className="grid" style={{ gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
+          <Field label="Report"><select className="input" value={reportType} onChange={(e) => setReportType(e.target.value)}>
+            <option value="attendance">Attendance & Activity</option>
+            <option value="projects">Project Productivity</option>
+            <option value="utilization">Utilization</option>
+          </select></Field>
+          <Field label="Department"><select className="input" value={dept} onChange={(e) => setDept(e.target.value)}>
+            {depts.map((d) => <option key={d} value={d}>{d === "all" ? "All departments" : d}</option>)}
+          </select></Field>
+          <Field label="Project"><select className="input" value={proj} onChange={(e) => setProj(e.target.value)}>
+            {projCodes.map((p) => <option key={p} value={p}>{p === "all" ? "All projects" : p}</option>)}
+          </select></Field>
+          <Field label="Date range"><select className="input" value={days} onChange={(e) => setDays(+e.target.value)}>
+            <option value={1}>Last 24h</option><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option>
+          </select></Field>
         </div>
-        <div className="muted" style={{ fontSize: 11.5 }}>{people.length} staff · {people.reduce((a, p) => a + p.hours, 0).toFixed(1)}h logged today.</div>
+        <div className="between">
+          <span className="muted" style={{ fontSize: 11.5 }}>
+            {filteredPeople().length} staff · {filteredPeople().reduce((a, p) => a + p.hours, 0).toFixed(1)}h today
+          </span>
+          <div className="row gap-2">
+            <button className="btn btn-secondary btn-sm" onClick={() => exportCsv("tangent-report", filteredPeople().map((p) => ({
+              name: p.name, dept: p.dept, role: p.role, status: p.status, active_h: (p.focusMin / 60).toFixed(2),
+              idle_h: (p.idleMin / 60).toFixed(2), hours: p.hours, overtime: p.ot, utilization: p.utilization })))}>
+              <Icon name="Download" size={12} /> CSV
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={generateExcel}>
+              <Icon name="FileSpreadsheet" size={13} /> Generate Excel
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="surface" style={{ ...card, marginTop: 14 }}>
+        <div className="muted" style={{ fontSize: 12, lineHeight: 1.6 }}>
+          <b>Note on the Excel template:</b> reports export as real .xlsx workbooks with branded headers,
+          summary totals, and per-sheet breakdowns (Projects + By-User). To match your exact in-house
+          Tangent template, share the .xlsx file and the styling/columns will be aligned to it.
+        </div>
       </div>
     </motion.div>
   );
