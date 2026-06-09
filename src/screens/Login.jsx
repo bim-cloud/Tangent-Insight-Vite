@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Icon } from "../components/primitives.jsx";
 import { auth } from "../lib/auth.js";
 import { spring } from "../motion/variants.js";
+import ArchBackground from "./ArchBackground.jsx";
 
 export default function Login({ onSignedIn }) {
   const [email, setEmail] = useState("");
@@ -20,36 +21,78 @@ export default function Login({ onSignedIn }) {
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, position: "relative", zIndex: 1 }}>
-      <motion.div initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={spring.soft}
-        className="surface" style={{ width: 400, maxWidth: "100%", padding: 32 }}>
-        <div className="row gap-3" style={{ marginBottom: 24 }}>
-          <img src="/tangent-mark.png" alt="Tangent" style={{ height: 44, width: "auto", objectFit: "contain" }} />
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 17 }}>Tangent <span style={{ color: "rgb(var(--accent))" }}>Insight</span></div>
-            <div className="muted" style={{ fontSize: 11.5 }}>BIM Intelligence Platform</div>
-          </div>
+    <div style={{ minHeight: "100vh", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <ArchBackground />
+
+      <motion.div
+        initial={{ opacity: 0, y: 26, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={spring.soft}
+        style={{
+          position: "relative", zIndex: 1, width: 880, maxWidth: "100%", minHeight: 480,
+          display: "grid", gridTemplateColumns: "1fr 0.85fr", borderRadius: 22, overflow: "hidden",
+          background: "rgba(255,255,255,0.86)", backdropFilter: "blur(18px) saturate(1.3)",
+          boxShadow: "0 40px 100px -30px rgba(0,36,60,0.35), 0 0 0 1px rgba(0,36,60,0.06)",
+        }}
+      >
+        {/* LEFT — form */}
+        <div style={{ padding: "48px 46px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          <img src="/tangent-mark.png" alt="Tangent" style={{ height: 46, width: "auto", objectFit: "contain", marginBottom: 22 }} />
+          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em", color: "#00243c" }}>
+            Welcome to Tangent <span style={{ color: "#1890cc" }}>Insight</span>
+          </h1>
+          <p style={{ fontSize: 13, color: "#5a6b78", marginTop: 8, lineHeight: 1.6, maxWidth: 320 }}>
+            Seamlessly track project hours, productivity, and team performance in one place.
+          </p>
+
+          <form onSubmit={submit} style={{ marginTop: 26 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <LoginField icon="Mail" type="email" value={email} onChange={setEmail} placeholder="you@tangentlandscape.com" />
+              <LoginField icon="Lock" type="password" value={pw} onChange={setPw} placeholder="Password" />
+              {err && <div style={{ fontSize: 12, color: "#dc2626", padding: "7px 11px", borderRadius: 8, background: "rgba(220,38,38,0.08)" }}>{err}</div>}
+              <motion.button whileTap={{ scale: 0.98 }} whileHover={{ y: -1 }} type="submit" disabled={busy}
+                style={{ marginTop: 6, padding: "12px", borderRadius: 10, fontWeight: 600, fontSize: 14, color: "#fff",
+                  background: "linear-gradient(135deg, #1890cc, #003c6e)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  boxShadow: "0 8px 22px -8px rgba(24,144,204,0.6)", opacity: busy ? 0.7 : 1 }}>
+                {busy ? "Signing in…" : <>Sign in <Icon name="ArrowRight" size={15} /></>}
+              </motion.button>
+            </div>
+          </form>
+          <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 22 }}>Secured by Supabase Auth</div>
         </div>
-        <form onSubmit={submit}>
-          <div className="col gap-3">
-            <div>
-              <div className="micro" style={{ marginBottom: 5 }}>Email</div>
-              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@tangentlandscape.com" required />
-            </div>
-            <div>
-              <div className="micro" style={{ marginBottom: 5 }}>Password</div>
-              <input className="input" type="password" value={pw} onChange={(e) => setPw(e.target.value)} required />
-            </div>
-            {err && <div style={{ fontSize: 12, color: "rgb(var(--danger))", padding: "6px 10px", borderRadius: 8, background: "rgb(var(--danger)/0.1)" }}>{err}</div>}
-            <motion.button whileTap={{ scale: 0.98 }} className="btn btn-primary" type="submit" disabled={busy} style={{ justifyContent: "center", marginTop: 4 }}>
-              {busy ? "Signing in…" : <>Sign in <Icon name="ArrowRight" size={14} /></>}
-            </motion.button>
-          </div>
-        </form>
-        <div className="muted" style={{ fontSize: 10.5, marginTop: 18, textAlign: "center", lineHeight: 1.6 }}>
-          Secured by Supabase Auth · Tangent Landscape Architecture
+
+        {/* RIGHT — brand panel */}
+        <div style={{ position: "relative", padding: "48px 40px", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center",
+          background: "linear-gradient(160deg, #00314f 0%, #00243c 60%, #001825 100%)", overflow: "hidden" }}>
+          {/* animated rings */}
+          {[0, 1, 2].map((i) => (
+            <motion.div key={i} initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: [0.7, 1.5], opacity: [0.4, 0] }}
+              transition={{ duration: 3, delay: i * 0.7, repeat: Infinity, ease: "easeOut" }}
+              style={{ position: "absolute", height: 220, width: 220, borderRadius: "50%", border: "1px solid rgba(24,144,204,0.4)" }} />
+          ))}
+          <motion.img src="/tangent-logo.png" alt="Tangent Landscape Architecture"
+            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2, duration: 0.8 }}
+            style={{ height: 170, width: "auto", objectFit: "contain", position: "relative", zIndex: 1, filter: "drop-shadow(0 8px 30px rgba(24,144,204,0.4)) brightness(1.6)" }} />
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
+            style={{ position: "relative", zIndex: 1, marginTop: 20 }}>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 16, letterSpacing: "-0.01em" }}>BIM Intelligence Platform</div>
+            <div style={{ color: "rgba(176,200,216,0.8)", fontSize: 12, marginTop: 6 }}>Tangent Landscape Architecture</div>
+          </motion.div>
         </div>
       </motion.div>
+    </div>
+  );
+}
+
+function LoginField({ icon, type, value, onChange, placeholder }) {
+  return (
+    <div style={{ position: "relative" }}>
+      <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", display: "inline-flex" }}>
+        <Icon name={icon} size={15} />
+      </span>
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} required
+        style={{ width: "100%", padding: "11px 12px 11px 38px", borderRadius: 10, fontSize: 13.5,
+          border: "1px solid #dce3ea", background: "rgba(255,255,255,0.9)", color: "#0f172a", outline: "none" }}
+        onFocus={(e) => (e.target.style.borderColor = "#1890cc")}
+        onBlur={(e) => (e.target.style.borderColor = "#dce3ea")} />
     </div>
   );
 }
