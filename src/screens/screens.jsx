@@ -174,7 +174,7 @@ export function TeamsScreen({ data }) {
 }
 
 // ---------- EMPLOYEES ----------
-export function EmployeesScreen({ data }) {
+export function EmployeesScreen({ data, onPickUser }) {
   const { people } = data;
   const [q, setQ] = useState("");
   const filtered = people.filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || p.dept.toLowerCase().includes(q.toLowerCase()));
@@ -202,7 +202,7 @@ export function EmployeesScreen({ data }) {
               const totalPc = p.focusMin + p.idleMin;
               return (
                 <tr key={p.id}>
-                  <td><div className="row gap-2"><Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={28} /><div><div style={{ fontWeight: 600 }}>{p.name}</div><div className="muted" style={{ fontSize: 10.5 }}>{p.role}</div></div></div></td>
+                  <td><button className="row gap-2" onClick={() => onPickUser?.(p)} style={{ textAlign: "left" }}><Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={28} /><div><div style={{ fontWeight: 600 }}>{p.name}</div><div className="muted" style={{ fontSize: 10.5 }}>{p.role}</div></div></button></td>
                   <td className="muted">{p.dept}</td>
                   <td><Pill tone={p.status === "online" ? "success" : p.status === "meeting" ? "info" : p.status === "idle" ? "warning" : "neutral"} dot>{p.status}</Pill></td>
                   <td className="tabular" style={{ color: "rgb(var(--success))" }}>{fmtHM(p.focusMin)}</td>

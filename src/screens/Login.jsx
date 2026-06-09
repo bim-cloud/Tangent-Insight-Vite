@@ -24,9 +24,9 @@ export default function Login({ onSignedIn }) {
       <motion.div initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={spring.soft}
         className="surface" style={{ width: 400, maxWidth: "100%", padding: 32 }}>
         <div className="row gap-3" style={{ marginBottom: 24 }}>
-          <div style={{ height: 40, width: 40, borderRadius: 12, background: "var(--grad-cyan)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 18 }}>T</div>
+          <img src="/tangent-mark.png" alt="Tangent" style={{ height: 44, width: "auto", objectFit: "contain" }} />
           <div>
-            <div style={{ fontWeight: 700, fontSize: 17 }}>Tangent Insight</div>
+            <div style={{ fontWeight: 700, fontSize: 17 }}>Tangent <span style={{ color: "rgb(var(--accent))" }}>Insight</span></div>
             <div className="muted" style={{ fontSize: 11.5 }}>BIM Intelligence Platform</div>
           </div>
         </div>
