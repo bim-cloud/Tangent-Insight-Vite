@@ -14,13 +14,16 @@ import {
   RevitScreen, LiveScreen, TeamsScreen, EmployeesScreen,
   AnalyticsScreen, ReportsScreen, HistoryScreen, AdminScreen, SettingsScreen,
 } from "./screens/screens.jsx";
+import { AttendanceScreen, ProjectsScreen, EmployeeDrawer } from "./screens/extra.jsx";
 
 const META = {
   dashboard: { title: "Executive Dashboard", subtitle: "Live BIM intelligence across the studio" },
   revit: { title: "Project Monitoring", subtitle: "Central models, worksets, warnings — from the Revit plugin" },
+  projects: { title: "Projects", subtitle: "Active projects, contributors, and resource allocation" },
   live: { title: "Live Users", subtitle: "Who's working right now" },
   teams: { title: "Teams Activity", subtitle: "Meeting presence and call activity" },
   employees: { title: "Employee Overview", subtitle: "Everyone tracked by the platform" },
+  attendance: { title: "Attendance", subtitle: "Daily attendance · active vs idle time" },
   analytics: { title: "Work Analytics", subtitle: "Productivity, utilization, focus" },
   reports: { title: "Reports & Export", subtitle: "Build and download live reports" },
   history: { title: "Activity History", subtitle: "The full activity archive" },
@@ -36,6 +39,7 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem("ti.theme") || "dark");
   const [motionQuality, setMotionQuality] = useState(() => localStorage.getItem("ti.motion") || detectTier());
   const [showWelcome, setShowWelcome] = useState(() => !sessionStorage.getItem("ti.welcomed"));
+  const [drawerUser, setDrawerUser] = useState(null);
 
   const { data, live, refresh } = useLiveData();
   useLenis();
@@ -67,9 +71,11 @@ export default function App() {
   function renderScreen() {
     switch (route) {
       case "revit": return <RevitScreen {...screenProps} />;
+      case "projects": return <ProjectsScreen {...screenProps} onPickUser={setDrawerUser} />;
       case "live": return <LiveScreen {...screenProps} />;
       case "teams": return <TeamsScreen {...screenProps} />;
-      case "employees": return <EmployeesScreen {...screenProps} />;
+      case "employees": return <EmployeesScreen {...screenProps} onPickUser={setDrawerUser} />;
+      case "attendance": return <AttendanceScreen {...screenProps} />;
       case "analytics": return <AnalyticsScreen {...screenProps} />;
       case "reports": return <ReportsScreen {...screenProps} />;
       case "history": return <HistoryScreen {...screenProps} />;
@@ -102,6 +108,7 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
+      {drawerUser && <EmployeeDrawer person={drawerUser} activity={data.activity} onClose={() => setDrawerUser(null)} />}
     </ToastProvider>
   );
 }

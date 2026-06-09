@@ -2,18 +2,20 @@
    Tangent Insight — design tokens & base
    ============================================================ */
 :root {
-  /* Brand */
-  --accent: 34 211 238;        /* cyan */
-  --accent-2: 167 139 250;     /* violet */
+  /* Tangent brand — navy #00243c, blue #1890cc (sampled from logo) */
+  --accent: 24 144 204;        /* Tangent blue */
+  --accent-2: 0 60 100;        /* deep navy-blue */
+  --navy: 0 36 60;             /* Tangent navy #00243c */
   --success: 16 185 129;
   --warning: 245 158 11;
   --danger: 239 68 68;
-  --info: 56 189 248;
+  --info: 24 156 216;
 
-  --grad-cyan: linear-gradient(135deg, #22D3EE, #3B82F6);
-  --grad-violet: linear-gradient(135deg, #A78BFA, #A855F7);
+  --grad-cyan: linear-gradient(135deg, #1890cc, #003c6e);
+  --grad-violet: linear-gradient(135deg, #1890cc, #00243c);
   --grad-emerald: linear-gradient(135deg, #34D399, #14B8A6);
   --grad-amber: linear-gradient(135deg, #FBBF24, #F97316);
+  --grad-navy: linear-gradient(135deg, #003c6e, #00243c);
 
   --r-sm: 10px; --r-md: 14px; --r-lg: 18px; --r-xl: 24px;
   --pad-card: 18px;
@@ -22,16 +24,16 @@
 }
 
 html[data-theme="dark"] {
-  --bg: 9 11 18;
-  --bg-elev: 17 21 32;
-  --bg-sunken: 13 16 25;
-  --fg: 237 242 250;
-  --fg-soft: 180 190 206;
-  --fg-muted: 130 140 158;
-  --fg-faint: 90 100 118;
-  --border: 38 44 60;
-  --hairline: 30 36 50;
-  --glass: 17 21 32;
+  --bg: 6 16 24;
+  --bg-elev: 12 26 38;
+  --bg-sunken: 8 20 30;
+  --fg: 237 244 250;
+  --fg-soft: 176 192 208;
+  --fg-muted: 122 142 160;
+  --fg-faint: 84 104 122;
+  --border: 26 46 62;
+  --hairline: 20 38 52;
+  --glass: 12 26 38;
   --glass-alpha: 0.55;
 }
 html[data-theme="light"] {
