@@ -20,15 +20,27 @@ const inits = (name) =>
   (name || "?").split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 
 export function mapPerson(r) {
+  const focusMin = num(r.focus_min);
+  const idleMin = num(r.idle_min);
+  // The agent normally fills hours/utilization server-side. If those are
+  // zero/null but we DO have activity minutes, derive them so the UI never
+  // shows a misleading 0h / 0% for someone who's clearly been active.
+  let hours = num(r.hours);
+  if (!hours && focusMin > 0) hours = +(focusMin / 60).toFixed(2);
+  let utilization = num(r.utilization);
+  if (!utilization && focusMin + idleMin > 0) {
+    utilization = Math.round((focusMin / (focusMin + idleMin)) * 100);
+  }
   return {
     id: r.id, name: r.name, initials: r.initials || inits(r.name),
     role: r.role || "Staff", discipline: r.discipline || "UNASSIGNED",
     dept: r.dept || "Unassigned", status: r.status || "offline",
     project: r.project || "—", version: r.version || "—",
-    focusMin: num(r.focus_min), idleMin: num(r.idle_min),
-    hours: num(r.hours), ot: num(r.ot), utilization: num(r.utilization),
+    focusMin, idleMin, hours, ot: num(r.ot), utilization,
     machine: r.machine || "—", email: r.email || "", username: r.username || "",
     isAdmin: !!r.is_admin,
+    onlineSince: r.online_since || null,
+    loginTime: r.login_time || null, logoutTime: r.logout_time || null,
   };
 }
 
