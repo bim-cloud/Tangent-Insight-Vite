@@ -5,9 +5,11 @@ import { spring } from "../motion/variants.js";
 const NAV = [
   { id: "dashboard", label: "Executive Dashboard", icon: "LayoutDashboard" },
   { id: "revit", label: "Project Monitoring", icon: "Box" },
+  { id: "projects", label: "Projects", icon: "FolderKanban" },
   { id: "live", label: "Live Users", icon: "Radio" },
   { id: "teams", label: "Teams Activity", icon: "Video" },
   { id: "employees", label: "Employee Overview", icon: "Users" },
+  { id: "attendance", label: "Attendance", icon: "CalendarCheck" },
   { id: "analytics", label: "Work Analytics", icon: "TrendingUp" },
   { id: "reports", label: "Reports & Export", icon: "FileBarChart" },
   { id: "history", label: "Activity History", icon: "History" },
@@ -24,10 +26,9 @@ export function Sidebar({ route, setRoute, me }) {
       borderRight: "1px solid rgb(var(--border) / 0.5)",
     }}>
       <div className="row gap-3" style={{ padding: "4px 8px 20px" }}>
-        <div style={{ height: 34, width: 34, borderRadius: 10, background: "var(--grad-cyan)",
-          display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800 }}>T</div>
+        <img src="/tangent-mark.png" alt="Tangent" style={{ height: 34, width: "auto", objectFit: "contain" }} />
         <div>
-          <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: "-0.01em" }}>Tangent Insight</div>
+          <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: "-0.01em" }}>Tangent <span style={{ color: "rgb(var(--accent))" }}>Insight</span></div>
           <div className="muted" style={{ fontSize: 10 }}>BIM Intelligence</div>
         </div>
       </div>
