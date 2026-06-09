@@ -68,10 +68,40 @@ export default function Login({ onSignedIn }) {
               transition={{ duration: 3, delay: i * 0.7, repeat: Infinity, ease: "easeOut" }}
               style={{ position: "absolute", height: 220, width: 220, borderRadius: "50%", border: "1px solid rgba(24,144,204,0.4)" }} />
           ))}
-          <motion.img src="/tangent-logo.png" alt="Tangent Landscape Architecture"
-            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2, duration: 0.8 }}
-            style={{ height: 170, width: "auto", objectFit: "contain", position: "relative", zIndex: 1, filter: "drop-shadow(0 8px 30px rgba(24,144,204,0.4)) brightness(1.6)" }} />
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
+
+          {/* Logo with silver-flare reveal: the light logo fades/scales in,
+              then a silver highlight sweeps across it (premium reveal). */}
+          <div style={{ position: "relative", zIndex: 1, height: 180, display: "flex", alignItems: "center" }}>
+            <motion.img src="/tangent-logo-light.png" alt="Tangent Landscape Architecture"
+              initial={{ opacity: 0, scale: 0.92, filter: "brightness(0.6)" }}
+              animate={{ opacity: 1, scale: 1, filter: "brightness(1)" }}
+              transition={{ delay: 0.2, duration: 1.0, ease: [0.16, 1, 0.3, 1] }}
+              style={{ height: 170, width: "auto", objectFit: "contain", filter: "drop-shadow(0 6px 26px rgba(24,144,204,0.45))" }} />
+            {/* silver flare sweep */}
+            <motion.div
+              initial={{ x: "-130%" }} animate={{ x: "130%" }}
+              transition={{ delay: 0.7, duration: 1.4, ease: "easeInOut" }}
+              style={{ position: "absolute", inset: 0, pointerEvents: "none",
+                background: "linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.55) 50%, transparent 65%)",
+                mixBlendMode: "screen",
+                WebkitMaskImage: "url(/tangent-logo-light.png)", maskImage: "url(/tangent-logo-light.png)",
+                WebkitMaskSize: "contain", maskSize: "contain",
+                WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat",
+                WebkitMaskPosition: "center", maskPosition: "center" }} />
+            {/* recurring subtle shimmer */}
+            <motion.div
+              initial={{ x: "-130%" }} animate={{ x: "130%" }}
+              transition={{ delay: 3, duration: 2, ease: "easeInOut", repeat: Infinity, repeatDelay: 4 }}
+              style={{ position: "absolute", inset: 0, pointerEvents: "none",
+                background: "linear-gradient(105deg, transparent 42%, rgba(255,255,255,0.3) 50%, transparent 58%)",
+                mixBlendMode: "screen",
+                WebkitMaskImage: "url(/tangent-logo-light.png)", maskImage: "url(/tangent-logo-light.png)",
+                WebkitMaskSize: "contain", maskSize: "contain",
+                WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat",
+                WebkitMaskPosition: "center", maskPosition: "center" }} />
+          </div>
+
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.9 }}
             style={{ position: "relative", zIndex: 1, marginTop: 20 }}>
             <div style={{ color: "#fff", fontWeight: 700, fontSize: 16, letterSpacing: "-0.01em" }}>BIM Intelligence Platform</div>
             <div style={{ color: "rgba(176,200,216,0.8)", fontSize: 12, marginTop: 6 }}>Tangent Landscape Architecture</div>
