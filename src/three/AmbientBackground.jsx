@@ -37,8 +37,8 @@ function ParticleField({ count, theme }) {
     return { positions, scales, speeds };
   }, [count]);
 
-  const color = useMemo(() => new THREE.Color(theme === "light" ? "#0ea5b7" : "#38e0f0"), [theme]);
-  const color2 = useMemo(() => new THREE.Color("#a78bfa"), []);
+  const color = useMemo(() => new THREE.Color(theme === "light" ? "#1890cc" : "#1890cc"), [theme]);
+  const color2 = useMemo(() => new THREE.Color(theme === "light" ? "#00243c" : "#3db5e8"), []);
 
   useFrame((state, delta) => {
     if (!points.current) return;
@@ -83,11 +83,11 @@ function ParticleField({ count, theme }) {
         size={0.08}
         map={tex}
         transparent
-        opacity={theme === "light" ? 0.5 : 0.7}
+        opacity={theme === "light" ? 0.75 : 0.7}
         color={color}
         sizeAttenuation
         depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        blending={theme === "light" ? THREE.NormalBlending : THREE.AdditiveBlending}
       />
     </points>
   );
@@ -111,11 +111,11 @@ function GlowOrbs({ theme }) {
     <>
       <mesh ref={a} position={[-3, 1, -4]}>
         <sphereGeometry args={[2.4, 32, 32]} />
-        <meshBasicMaterial color="#22d3ee" transparent opacity={theme === "light" ? 0.04 : 0.07} />
+        <meshBasicMaterial color="#1890cc" transparent opacity={theme === "light" ? 0.06 : 0.08} />
       </mesh>
       <mesh ref={b} position={[4, -1, -5]}>
         <sphereGeometry args={[2.8, 32, 32]} />
-        <meshBasicMaterial color="#a78bfa" transparent opacity={theme === "light" ? 0.035 : 0.06} />
+        <meshBasicMaterial color={theme === "light" ? "#00243c" : "#3db5e8"} transparent opacity={theme === "light" ? 0.05 : 0.07} />
       </mesh>
     </>
   );
@@ -133,8 +133,8 @@ export default function AmbientBackground({ theme = "dark", quality }) {
       <div aria-hidden style={{
         position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
         background: theme === "light"
-          ? "radial-gradient(1200px 600px at 30% 20%, rgba(34,211,238,0.06), transparent), radial-gradient(1000px 500px at 75% 70%, rgba(167,139,250,0.05), transparent)"
-          : "radial-gradient(1200px 600px at 30% 20%, rgba(34,211,238,0.08), transparent), radial-gradient(1000px 500px at 75% 70%, rgba(167,139,250,0.07), transparent)",
+          ? "radial-gradient(1200px 600px at 30% 20%, rgba(24,144,204,0.07), transparent), radial-gradient(1000px 500px at 75% 70%, rgba(0,36,60,0.05), transparent)"
+          : "radial-gradient(1200px 600px at 30% 20%, rgba(24,144,204,0.1), transparent), radial-gradient(1000px 500px at 75% 70%, rgba(0,60,100,0.08), transparent)",
       }} />
     );
   }
