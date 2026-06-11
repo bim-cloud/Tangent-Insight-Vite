@@ -50,7 +50,7 @@ const MOTION_ORDER = ["high", "mid", "low", "off"];
 export default function App() {
   const [session, setSession] = useState(auth.getSession());
   const [route, setRoute] = useState("dashboard");
-  const [theme, setTheme] = useState(() => localStorage.getItem("ti.theme") || "dark");
+  const [theme, setTheme] = useState(() => localStorage.getItem("ti.theme") || "light");
   const [motionQuality, setMotionQuality] = useState(() => localStorage.getItem("ti.motion") || detectTier());
   const [showWelcome, setShowWelcome] = useState(() => !sessionStorage.getItem("ti.welcomed"));
   const [drawerUser, setDrawerUser] = useState(null);
@@ -100,7 +100,7 @@ export default function App() {
 
   return (
     <ToastProvider>
-      <ArchBackground variant="dashboard" theme={theme} />
+      <ArchBackground variant="dashboard" theme={theme} static />
       <AnimatePresence>
         {showWelcome && motionQuality !== "off" && (
           <WelcomeScreen key="welcome" name={me?.name}
