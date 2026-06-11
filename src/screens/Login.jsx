@@ -10,15 +10,26 @@ export default function Login({ onSignedIn }) {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("password");   // "password" | "magic"
+  const [sent, setSent] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
     setBusy(true); setErr("");
-    const res = await auth.signInWithPassword(email, pw);
-    setBusy(false);
-    if (res.error) setErr(res.error);
-    else onSignedIn?.();
+    if (mode === "magic") {
+      const res = await auth.signInWithMagicLink(email);
+      setBusy(false);
+      if (res.error) setErr(res.error);
+      else setSent(true);
+    } else {
+      const res = await auth.signInWithPassword(email, pw);
+      setBusy(false);
+      if (res.error) setErr(res.error);
+      else onSignedIn?.();
+    }
   }
+
+  function switchMode(m) { setMode(m); setErr(""); setSent(false); }
 
   return (
     <div style={{ minHeight: "100vh", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -43,19 +54,57 @@ export default function Login({ onSignedIn }) {
             Seamlessly track project hours, productivity, and team performance in one place.
           </p>
 
-          <form onSubmit={submit} style={{ marginTop: 26 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <LoginField icon="Mail" type="email" value={email} onChange={setEmail} placeholder="you@tangentlandscape.com" />
-              <LoginField icon="Lock" type="password" value={pw} onChange={setPw} placeholder="Password" />
-              {err && <div style={{ fontSize: 12, color: "#dc2626", padding: "7px 11px", borderRadius: 8, background: "rgba(220,38,38,0.08)" }}>{err}</div>}
-              <motion.button whileTap={{ scale: 0.98 }} whileHover={{ y: -1 }} type="submit" disabled={busy}
-                style={{ marginTop: 6, padding: "12px", borderRadius: 10, fontWeight: 600, fontSize: 14, color: "#fff",
-                  background: "linear-gradient(135deg, #1890cc, #003c6e)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  boxShadow: "0 8px 22px -8px rgba(24,144,204,0.6)", opacity: busy ? 0.7 : 1 }}>
-                {busy ? "Signing in…" : <>Sign in <Icon name="ArrowRight" size={15} /></>}
-              </motion.button>
-            </div>
-          </form>
+          {sent ? (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+              style={{ marginTop: 26, padding: "20px", borderRadius: 12, background: "rgba(24,144,204,0.08)", border: "1px solid rgba(24,144,204,0.2)" }}>
+              <div className="row gap-2" style={{ marginBottom: 8 }}>
+                <Icon name="MailCheck" size={18} color="#1890cc" />
+                <span style={{ fontWeight: 600, fontSize: 14, color: "#00243c" }}>Check your inbox</span>
+              </div>
+              <p style={{ fontSize: 12.5, color: "#5a6b78", lineHeight: 1.6 }}>
+                We sent a secure sign-in link to <b>{email}</b>. Click it to access Tangent Insight — no password needed.
+              </p>
+              <button onClick={() => switchMode("password")}
+                style={{ marginTop: 12, fontSize: 12, color: "#1890cc", fontWeight: 600 }}>
+                ← Back to sign in
+              </button>
+            </motion.div>
+          ) : (
+            <form onSubmit={submit} style={{ marginTop: 26 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <LoginField icon="Mail" type="email" value={email} onChange={setEmail} placeholder="you@tangentlandscape.com" />
+                {mode === "password" && (
+                  <LoginField icon="Lock" type="password" value={pw} onChange={setPw} placeholder="Password" />
+                )}
+                {err && <div style={{ fontSize: 12, color: "#dc2626", padding: "7px 11px", borderRadius: 8, background: "rgba(220,38,38,0.08)" }}>{err}</div>}
+                <motion.button whileTap={{ scale: 0.98 }} whileHover={{ y: -1 }} type="submit" disabled={busy}
+                  style={{ marginTop: 6, padding: "12px", borderRadius: 10, fontWeight: 600, fontSize: 14, color: "#fff",
+                    background: "linear-gradient(135deg, #1890cc, #003c6e)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    boxShadow: "0 8px 22px -8px rgba(24,144,204,0.6)", opacity: busy ? 0.7 : 1 }}>
+                  {busy ? (mode === "magic" ? "Sending link…" : "Signing in…")
+                        : mode === "magic" ? <>Send magic link <Icon name="Sparkles" size={15} /></>
+                                           : <>Sign in <Icon name="ArrowRight" size={15} /></>}
+                </motion.button>
+              </div>
+
+              {/* mode toggle */}
+              <div style={{ marginTop: 18, textAlign: "center", fontSize: 12.5, color: "#5a6b78" }}>
+                {mode === "password" ? (
+                  <>Prefer no password?{" "}
+                    <button type="button" onClick={() => switchMode("magic")} style={{ color: "#1890cc", fontWeight: 600 }}>
+                      Email me a magic link
+                    </button>
+                  </>
+                ) : (
+                  <>Have a password?{" "}
+                    <button type="button" onClick={() => switchMode("password")} style={{ color: "#1890cc", fontWeight: 600 }}>
+                      Sign in with password
+                    </button>
+                  </>
+                )}
+              </div>
+            </form>
+          )}
           <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 22 }}>Secured by Supabase Auth</div>
         </div>
 
