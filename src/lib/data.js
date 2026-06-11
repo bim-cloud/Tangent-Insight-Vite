@@ -162,11 +162,18 @@ export function buildProjectFolders(projects, fileMap, people, metrics) {
     return fileToProject[file] ?? null;
   }
 
-  // Only plugin-reported files are valid opened models.
+  // Valid opened models = plugin-reported OR manually assigned OR a real model
+  // someone is currently working in (covers the period before the plugin
+  // rebuild is fully deployed). Links/underlays are still excluded.
   const pluginFiles = new Set();
   (metrics || []).forEach((m) => { if (m.source === "revit_plugin" && m.project) pluginFiles.add(m.project); });
-  // Manually-assigned files are also trusted.
-  Object.keys(fileToProject).forEach((f) => pluginFiles.add(f));
+  Object.keys(fileToProject).forEach((f) => pluginFiles.add(f));   // manual assignments
+  (people || []).forEach((p) => {
+    const f = p.project;
+    if (f && f !== "—" && f !== "Multi" && !/\.(dwg|ifc|nwc|nwd|rfa|rte|skp|pdf|dgn)$/i.test(f) && !/\.\d{4}$/.test(f)) {
+      pluginFiles.add(f);
+    }
+  });
 
   // 1) Roll up per-file METRICS into the assigned folder.
   (metrics || []).forEach((m) => {
@@ -234,14 +241,42 @@ export function allFilesSeen(fileMap, people, metrics) {
   (metrics || []).forEach((m) => { if (m.project) sourceOf[m.project] = m.source || "agent"; });
 
   const seen = new Set();
-  // ONLY plugin-reported files count as opened models.
+
+  // 1) Plugin-reported files are always trusted (authoritative opened models).
   (metrics || []).forEach((m) => {
     if (m.source === "revit_plugin" && m.project && m.project !== "—") seen.add(m.project);
   });
-  // Files already assigned by a user are always kept (human vouched for them).
+
+  // 2) Files someone is CURRENTLY working in. While the plugin rebuild rolls
+  //    out, the active document in people.project is the model the user opened.
+  //    We still drop obvious non-models (no .rvt and matches a link/underlay
+  //    shape) so the list stays clean.
+  (people || []).forEach((p) => {
+    const f = p.project;
+    if (!f || f === "—" || f === "Multi") return;
+    if (looksLikeModel(f)) seen.add(f);
+  });
+
+  // 3) Files already assigned by a user are always kept.
   Object.keys(assigned).forEach((f) => seen.add(f));
 
-  return [...seen].map((file) => ({ file, projectId: assigned[file] ?? null, source: sourceOf[file] || "manual" }));
+  return [...seen].map((file) => ({
+    file,
+    projectId: assigned[file] ?? null,
+    source: sourceOf[file] || (assigned[file] != null ? "manual" : "active"),
+  }));
+}
+
+// Lightweight sanity filter (NOT the link gate — the plugin source is the real
+// authority). Keeps real working models, drops obvious underlays/families.
+function looksLikeModel(name) {
+  const lower = String(name).toLowerCase().trim();
+  if (!lower) return false;
+  // Drop non-Revit underlay/reference file types.
+  if (/\.(dwg|ifc|nwc|nwd|rfa|rte|skp|pdf|dgn)$/.test(lower)) return false;
+  // Drop Revit backups: name.0001
+  if (/\.\d{4}$/.test(lower)) return false;
+  return true;
 }
 
 // Files not yet assigned to any folder.
