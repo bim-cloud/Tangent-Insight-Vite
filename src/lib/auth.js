@@ -81,12 +81,63 @@ export const auth = {
       return { error: e.error_description || e.msg || e.message || "Sign-in failed" };
     }
   },
+  signUp: async (email, password) => {
+    try {
+      const r = await api("signup", {
+        email, password,
+        options: { email_redirect_to: window.location.origin },
+      });
+      // If email confirmation is OFF, signup returns a session immediately.
+      if (r && r.access_token) { setFromTokenResponse(r); return { session: true }; }
+      // If a user object came back with no session, confirmation email was sent.
+      if (r && (r.id || r.user)) return { confirm: true };
+      return {};
+    } catch (e) {
+      const msg = e.error_description || e.msg || e.message || "Sign-up failed";
+      return { error: msg };
+    }
+  },
   signInWithMagicLink: async (email) => {
     try {
-      await api("otp", { email, create_user: false, email_redirect_to: location.origin });
+      // Explicit full-origin redirect so the link always returns to THIS app
+      // (whichever domain it's served from), not Supabase's default Site URL.
+      await api("otp", {
+        email,
+        create_user: false,
+        options: { email_redirect_to: window.location.origin },
+      });
       return {};
     } catch (e) {
       return { error: e.error_description || e.msg || e.message || "Could not send link" };
+    }
+  },
+  resetPassword: async (email) => {
+    try {
+      await api("recover", {
+        email,
+        options: { email_redirect_to: window.location.origin },
+      });
+      return {};
+    } catch (e) {
+      return { error: e.error_description || e.msg || e.message || "Could not send reset email" };
+    }
+  },
+  // Set a new password using the recovery session (after the user clicks the
+  // reset link and lands back here with a recovery token in the URL).
+  updatePassword: async (newPassword) => {
+    try {
+      const token = session?.access_token;
+      if (!token) return { error: "No active session. Open the reset link from your email again." };
+      const r = await fetch(SUPABASE_URL + "/auth/v1/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token },
+        body: JSON.stringify({ password: newPassword }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw j;
+      return {};
+    } catch (e) {
+      return { error: e.error_description || e.msg || e.message || "Could not update password" };
     }
   },
   signOut: () => {
@@ -96,7 +147,8 @@ export const auth = {
   },
 };
 
-// Handle magic-link hash callback
+// Handle magic-link / recovery hash callback
+export let RECOVERY_MODE = false;
 if (location.hash && location.hash.includes("access_token=")) {
   const parts = {};
   location.hash.replace(/^#/, "").split("&").forEach((kv) => {
@@ -109,6 +161,9 @@ if (location.hash && location.hash.includes("access_token=")) {
       refresh_token: parts.refresh_token,
       expires_in: +parts.expires_in || 3600,
     });
+    // If this came from a password-reset email, flag it so the app shows the
+    // "set a new password" screen instead of dropping straight into the app.
+    if (parts.type === "recovery") RECOVERY_MODE = true;
     // fetch user
     fetch(SUPABASE_URL + "/auth/v1/user", {
       headers: { apikey: SUPABASE_ANON, Authorization: "Bearer " + parts.access_token },
