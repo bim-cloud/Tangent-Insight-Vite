@@ -52,6 +52,20 @@ export function mapEvent(r) {
 
 const STAGE = ["Concept", "Schematic", "Detailed", "Technical", "Construction"];
 
+// Canonical file key: strip the .rvt/.rfa/.rte extension, trim whitespace, and
+// drop any trailing " (workshared)" / detached suffixes Revit adds, so the
+// same model reported as "X", "X.rvt", "X.RVT" all collapse to ONE entry.
+// This is the key used for grouping, assignment, and dedup everywhere.
+export function normalizeFileName(name) {
+  if (!name) return "";
+  let n = String(name).trim();
+  // remove a single trailing Revit extension (case-insensitive)
+  n = n.replace(/\.(rvt|rfa|rte)$/i, "");
+  // collapse internal whitespace
+  n = n.replace(/\s+/g, " ").trim();
+  return n;
+}
+
 export function deriveProjects(people) {
   const byCentral = {};
   people.forEach((p) => {
@@ -154,34 +168,30 @@ export function buildProjectFolders(projects, fileMap, people, metrics, sessions
 
   // The single source of truth: file_name -> project_id (explicit assignments).
   const fileToProject = {};
-  (fileMap || []).forEach((f) => { if (f.project_id != null) fileToProject[f.file_name] = f.project_id; });
+  (fileMap || []).forEach((f) => { if (f.project_id != null) fileToProject[normalizeFileName(f.file_name)] = f.project_id; });
 
-  // Helper: given a central-file string, find its assigned folder id.
+  // Helper: given a central-file string, find its assigned folder id (normalized).
   function folderForFile(file) {
     if (!file || file === "—") return null;
-    return fileToProject[file] ?? null;
+    return fileToProject[normalizeFileName(file)] ?? null;
   }
 
   // Valid opened models = plugin-reported OR manually assigned OR a real model
-  // someone is currently working in (covers the period before the plugin
-  // rebuild is fully deployed). Links/underlays are still excluded.
+  // someone is currently working in. All keys NORMALIZED so "X" and "X.rvt"
+  // count as the same model.
   const pluginFiles = new Set();
-  (metrics || []).forEach((m) => { if (m.source === "revit_plugin" && m.project) pluginFiles.add(m.project); });
-  Object.keys(fileToProject).forEach((f) => pluginFiles.add(f));   // manual assignments
-  (people || []).forEach((p) => {
-    const f = p.project;
-    if (f && f !== "—" && f !== "Multi" && !/\.(dwg|ifc|nwc|nwd|rfa|rte|skp|pdf|dgn)$/i.test(f) && !/\.\d{4}$/.test(f)) {
-      pluginFiles.add(f);
-    }
-  });
+  (metrics || []).forEach((m) => { if (m.source === "revit_plugin" && looksLikeModel(m.project)) pluginFiles.add(normalizeFileName(m.project)); });
+  Object.keys(fileToProject).forEach((f) => pluginFiles.add(f));   // manual assignments (already normalized)
+  (people || []).forEach((p) => { if (looksLikeModel(p.project)) pluginFiles.add(normalizeFileName(p.project)); });
 
-  // 1) Roll up per-file METRICS into the assigned folder.
+  // 1) Roll up per-file METRICS into the assigned folder (normalized keys).
   (metrics || []).forEach((m) => {
-    if (!pluginFiles.has(m.project)) return;     // skip non-opened (links/agent) files
+    const key = normalizeFileName(m.project);
+    if (!pluginFiles.has(key)) return;           // skip non-opened (links/agent) files
     const pid = folderForFile(m.project);
     if (pid == null || !byId[pid]) return;
     const folder = byId[pid];
-    if (!folder.files.includes(m.project)) folder.files.push(m.project);
+    if (!folder.files.includes(key)) folder.files.push(key);   // store normalized, dedup
     folder.worksets += m.worksets || 0;
     folder.openViews += m.open_views || 0;
     folder.warnings += m.warnings || 0;
@@ -193,7 +203,7 @@ export function buildProjectFolders(projects, fileMap, people, metrics, sessions
 
   // 2) Roll up PEOPLE present in a folder's files (for the "who/status" list).
   (people || []).forEach((p) => {
-    if (!pluginFiles.has(p.project)) return;     // only count people in a real opened model
+    if (!pluginFiles.has(normalizeFileName(p.project))) return;
     const pid = folderForFile(p.project);
     if (pid == null || !byId[pid]) return;
     const folder = byId[pid];
@@ -209,9 +219,9 @@ export function buildProjectFolders(projects, fileMap, people, metrics, sessions
   // 2b) Layer in ACCUMULATED session time (the source of truth for hours).
   //     v_project_user_time gives summed seconds per (project file, person).
   //     We attribute each file's sessions to its folder, summing across files.
-  const fileToFolderId = fileToProject; // alias
+  //     Keys NORMALIZED so session rows match assigned files regardless of .rvt.
   (sessions || []).forEach((s) => {
-    const pid = fileToFolderId[s.project];
+    const pid = folderForFile(s.project);
     if (pid == null || !byId[pid]) return;
     const folder = byId[pid];
     const mins = Math.round((s.total_seconds || 0) / 60);
@@ -265,37 +275,38 @@ export function isOpenedModel(file, metricsBySource) {
 }
 
 export function allFilesSeen(fileMap, people, metrics) {
+  // assignments keyed by normalized name
   const assigned = {};
-  (fileMap || []).forEach((f) => { if (f.project_id != null) assigned[f.file_name] = f.project_id; });
-
-  // Build file -> source from metrics.
-  const sourceOf = {};
-  (metrics || []).forEach((m) => { if (m.project) sourceOf[m.project] = m.source || "agent"; });
-
-  const seen = new Set();
-
-  // 1) Plugin-reported files are always trusted (authoritative opened models).
-  (metrics || []).forEach((m) => {
-    if (m.source === "revit_plugin" && m.project && m.project !== "—") seen.add(m.project);
+  (fileMap || []).forEach((f) => {
+    if (f.project_id != null) assigned[normalizeFileName(f.file_name)] = f.project_id;
   });
 
-  // 2) Files someone is CURRENTLY working in. While the plugin rebuild rolls
-  //    out, the active document in people.project is the model the user opened.
-  //    We still drop obvious non-models (no .rvt and matches a link/underlay
-  //    shape) so the list stays clean.
-  (people || []).forEach((p) => {
-    const f = p.project;
-    if (!f || f === "—" || f === "Multi") return;
-    if (looksLikeModel(f)) seen.add(f);
-  });
+  // best display name + source per normalized key
+  const display = {};   // norm -> nicest display string
+  const sourceOf = {};  // norm -> source
 
-  // 3) Files already assigned by a user are always kept.
-  Object.keys(assigned).forEach((f) => seen.add(f));
+  function consider(rawName, source) {
+    if (!rawName || rawName === "—" || rawName === "Multi") return;
+    if (!looksLikeModel(rawName)) return;
+    const key = normalizeFileName(rawName);
+    if (!key) return;
+    // Prefer a display name WITHOUT extension (cleaner), but keep first seen.
+    if (!display[key]) display[key] = key;
+    // plugin source wins as the authority marker
+    if (source === "revit_plugin" || !sourceOf[key]) sourceOf[key] = source;
+  }
 
-  return [...seen].map((file) => ({
-    file,
-    projectId: assigned[file] ?? null,
-    source: sourceOf[file] || (assigned[file] != null ? "manual" : "active"),
+  (metrics || []).forEach((m) => consider(m.project, m.source || "agent"));
+  (people || []).forEach((p) => consider(p.project, "active"));
+
+  // Always include assigned files (human vouched), even if not currently seen.
+  Object.keys(assigned).forEach((key) => { if (!display[key]) display[key] = key; });
+
+  // Build deduped list keyed by normalized name.
+  return Object.keys(display).map((key) => ({
+    file: key,                                   // canonical (normalized) name
+    projectId: assigned[key] ?? null,
+    source: sourceOf[key] || (assigned[key] != null ? "manual" : "active"),
   }));
 }
 
