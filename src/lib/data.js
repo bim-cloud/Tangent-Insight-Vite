@@ -140,7 +140,7 @@ export const ROUTE_FOR_KPI = {
 // fileMap  : rows from public.project_files (file_name -> project_id)
 // people   : mapped people; p.project = the central file they're in (or its code)
 // metrics  : project_metrics rows, one per central file (m.project = file name)
-export function buildProjectFolders(projects, fileMap, people, metrics) {
+export function buildProjectFolders(projects, fileMap, people, metrics, sessions) {
   const byId = {};
   (projects || []).forEach((p) => {
     byId[p.id] = {
@@ -191,31 +191,63 @@ export function buildProjectFolders(projects, fileMap, people, metrics) {
     if (m.updated_at && (!folder.lastActivity || m.updated_at > folder.lastActivity)) folder.lastActivity = m.updated_at;
   });
 
-  // 2) Roll up PEOPLE (their working time) into the folder of the file they're in.
+  // 2) Roll up PEOPLE present in a folder's files (for the "who/status" list).
   (people || []).forEach((p) => {
     if (!pluginFiles.has(p.project)) return;     // only count people in a real opened model
     const pid = folderForFile(p.project);
     if (pid == null || !byId[pid]) return;
     const folder = byId[pid];
-    if (folder.userIds.has(p.id)) {
-      // already counted (same person could appear once); accumulate time
-      const existing = folder.users.find((u) => u.id === p.id);
-      if (existing) { existing.focusMin += p.focusMin; existing.hours += p.hours; }
-    } else {
+    if (!folder.userIds.has(p.id)) {
       folder.userIds.add(p.id);
       folder.users.push({
         id: p.id, name: p.name, initials: p.initials, discipline: p.discipline,
-        status: p.status, focusMin: p.focusMin, hours: p.hours, file: p.project,
+        status: p.status, focusMin: 0, hours: 0, sessionCount: 0, lastActive: null, file: p.project,
       });
     }
   });
 
-  // 3) Finalize aggregates.
+  // 2b) Layer in ACCUMULATED session time (the source of truth for hours).
+  //     v_project_user_time gives summed seconds per (project file, person).
+  //     We attribute each file's sessions to its folder, summing across files.
+  const fileToFolderId = fileToProject; // alias
+  (sessions || []).forEach((s) => {
+    const pid = fileToFolderId[s.project];
+    if (pid == null || !byId[pid]) return;
+    const folder = byId[pid];
+    const mins = Math.round((s.total_seconds || 0) / 60);
+    const hours = +(s.total_hours || 0);
+    let u = folder.users.find((x) => x.id === s.person_id);
+    if (!u) {
+      // a user who has sessions but isn't currently "in" the file
+      u = { id: s.person_id, name: s.person_id, initials: (s.person_id || "?").slice(0, 2).toUpperCase(),
+        discipline: "UNASSIGNED", status: "offline", focusMin: 0, hours: 0, sessionCount: 0, lastActive: null, file: s.project };
+      folder.userIds.add(s.person_id);
+      folder.users.push(u);
+    }
+    u.focusMin += mins;
+    u.hours += hours;
+    u.sessionCount += s.session_count || 0;
+    if (s.last_active && (!u.lastActive || s.last_active > u.lastActive)) u.lastActive = s.last_active;
+    if (s.last_active && (!folder.lastActivity || s.last_active > folder.lastActivity)) folder.lastActivity = s.last_active;
+  });
+
+  // Resolve real names for session-only users from the people list.
+  const peopleById = {};
+  (people || []).forEach((p) => { peopleById[p.id] = p; });
+  Object.values(byId).forEach((folder) => {
+    folder.users.forEach((u) => {
+      const pp = peopleById[u.id];
+      if (pp) { u.name = pp.name; u.initials = pp.initials; u.discipline = pp.discipline;
+        if (u.status === "offline") u.status = pp.status; }
+    });
+  });
+
+  // 3) Finalize aggregates — totals are the SUM of accumulated session time.
   Object.values(byId).forEach((folder) => {
     folder.activeUsers = folder.users.filter((u) => u.status !== "offline").length;
     folder.totalFocusMin = folder.users.reduce((a, u) => a + u.focusMin, 0);
     folder.totalHours = folder.users.reduce((a, u) => a + u.hours, 0);
-    delete folder.userIds; // not serializable / not needed downstream
+    delete folder.userIds;
   });
 
   return Object.values(byId);
