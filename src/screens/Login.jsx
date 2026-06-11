@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Icon } from "../components/primitives.jsx";
-import { auth } from "../lib/auth.js";
+import { auth, RECOVERY_MODE } from "../lib/auth.js";
 import { spring } from "../motion/variants.js";
 import ArchBackground from "./ArchBackground.jsx";
 
@@ -10,26 +10,58 @@ export default function Login({ onSignedIn }) {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState("password");   // "password" | "magic"
+  // "password" | "magic" | "signup" | "forgot" | "reset"
+  const [mode, setMode] = useState(RECOVERY_MODE ? "reset" : "password");
   const [sent, setSent] = useState(false);
+  const [notice, setNotice] = useState("");
 
   async function submit(e) {
     e.preventDefault();
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setNotice("");
     if (mode === "magic") {
       const res = await auth.signInWithMagicLink(email);
       setBusy(false);
+      if (res.error) setErr(res.error); else setSent(true);
+    } else if (mode === "forgot") {
+      const res = await auth.resetPassword(email);
+      setBusy(false);
+      if (res.error) setErr(res.error); else { setSent(true); setNotice("reset-sent"); }
+    } else if (mode === "reset") {
+      if (pw.length < 6) { setBusy(false); setErr("Password must be at least 6 characters."); return; }
+      const res = await auth.updatePassword(pw);
+      setBusy(false);
+      if (res.error) setErr(res.error); else onSignedIn?.();   // now signed in with new password
+    } else if (mode === "signup") {
+      if (pw.length < 6) { setBusy(false); setErr("Password must be at least 6 characters."); return; }
+      const res = await auth.signUp(email, pw);
+      setBusy(false);
       if (res.error) setErr(res.error);
-      else setSent(true);
+      else if (res.session) onSignedIn?.();
+      else if (res.confirm) { setSent(true); setNotice("confirm"); }
+      else setNotice("done");
     } else {
       const res = await auth.signInWithPassword(email, pw);
       setBusy(false);
-      if (res.error) setErr(res.error);
-      else onSignedIn?.();
+      if (res.error) setErr(res.error); else onSignedIn?.();
     }
   }
 
-  function switchMode(m) { setMode(m); setErr(""); setSent(false); }
+  function switchMode(m) { setMode(m); setErr(""); setSent(false); setNotice(""); }
+
+  const titleByMode = {
+    password: "Welcome to Tangent",
+    magic: "Sign in with a link",
+    signup: "Create your account",
+    forgot: "Reset your password",
+    reset: "Set a new password",
+  };
+  const subByMode = {
+    password: "Seamlessly track project hours, productivity, and team performance in one place.",
+    magic: "We'll email you a secure one-click sign-in link — no password needed.",
+    signup: "Set a password to access Tangent Insight.",
+    forgot: "Enter your email and we'll send you a link to reset your password.",
+    reset: "Choose a new password for your account.",
+  };
 
   return (
     <div style={{ minHeight: "100vh", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -48,10 +80,10 @@ export default function Login({ onSignedIn }) {
         <div style={{ padding: "48px 46px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
           <img src="/tangent-mark.png" alt="Tangent" style={{ height: 46, width: "auto", objectFit: "contain", marginBottom: 22 }} />
           <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em", color: "#00243c" }}>
-            Welcome to Tangent <span style={{ color: "#1890cc" }}>Insight</span>
+            {mode === "password" ? <>Welcome to Tangent <span style={{ color: "#1890cc" }}>Insight</span></> : titleByMode[mode]}
           </h1>
           <p style={{ fontSize: 13, color: "#5a6b78", marginTop: 8, lineHeight: 1.6, maxWidth: 320 }}>
-            Seamlessly track project hours, productivity, and team performance in one place.
+            {subByMode[mode]}
           </p>
 
           {sent ? (
@@ -62,7 +94,11 @@ export default function Login({ onSignedIn }) {
                 <span style={{ fontWeight: 600, fontSize: 14, color: "#00243c" }}>Check your inbox</span>
               </div>
               <p style={{ fontSize: 12.5, color: "#5a6b78", lineHeight: 1.6 }}>
-                We sent a secure sign-in link to <b>{email}</b>. Click it to access Tangent Insight — no password needed.
+                {notice === "confirm"
+                  ? <>We sent a confirmation link to <b>{email}</b>. Click it to activate your account, then sign in.</>
+                  : notice === "reset-sent"
+                  ? <>We sent a password-reset link to <b>{email}</b>. Click it to choose a new password.</>
+                  : <>We sent a secure sign-in link to <b>{email}</b>. Click it to access Tangent Insight — no password needed.</>}
               </p>
               <button onClick={() => switchMode("password")}
                 style={{ marginTop: 12, fontSize: 12, color: "#1890cc", fontWeight: 600 }}>
@@ -72,35 +108,77 @@ export default function Login({ onSignedIn }) {
           ) : (
             <form onSubmit={submit} style={{ marginTop: 26 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <LoginField icon="Mail" type="email" value={email} onChange={setEmail} placeholder="you@tangentlandscape.com" />
-                {mode === "password" && (
-                  <LoginField icon="Lock" type="password" value={pw} onChange={setPw} placeholder="Password" />
+                {/* Email — hidden only in reset mode (user already identified via the link) */}
+                {mode !== "reset" && (
+                  <LoginField icon="Mail" type="email" value={email} onChange={setEmail} placeholder="you@tangentlandscape.com" />
                 )}
+                {/* Password — shown for password / signup / reset */}
+                {(mode === "password" || mode === "signup" || mode === "reset") && (
+                  <LoginField icon="Lock" type="password" value={pw} onChange={setPw}
+                    placeholder={mode === "signup" ? "Choose a password (min 6 chars)" : mode === "reset" ? "New password (min 6 chars)" : "Password"} />
+                )}
+
+                {/* Forgot password link — only on password sign-in */}
+                {mode === "password" && (
+                  <div style={{ textAlign: "right", marginTop: -6 }}>
+                    <button type="button" onClick={() => switchMode("forgot")}
+                      style={{ fontSize: 11.5, color: "#1890cc", fontWeight: 600 }}>
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
+
                 {err && <div style={{ fontSize: 12, color: "#dc2626", padding: "7px 11px", borderRadius: 8, background: "rgba(220,38,38,0.08)" }}>{err}</div>}
+
                 <motion.button whileTap={{ scale: 0.98 }} whileHover={{ y: -1 }} type="submit" disabled={busy}
                   style={{ marginTop: 6, padding: "12px", borderRadius: 10, fontWeight: 600, fontSize: 14, color: "#fff",
                     background: "linear-gradient(135deg, #1890cc, #003c6e)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
                     boxShadow: "0 8px 22px -8px rgba(24,144,204,0.6)", opacity: busy ? 0.7 : 1 }}>
-                  {busy ? (mode === "magic" ? "Sending link…" : "Signing in…")
-                        : mode === "magic" ? <>Send magic link <Icon name="Sparkles" size={15} /></>
-                                           : <>Sign in <Icon name="ArrowRight" size={15} /></>}
+                  {busy
+                    ? (mode === "magic" ? "Sending link…" : mode === "forgot" ? "Sending…" : mode === "signup" ? "Creating account…" : mode === "reset" ? "Updating…" : "Signing in…")
+                    : mode === "magic" ? <>Send magic link <Icon name="Sparkles" size={15} /></>
+                    : mode === "forgot" ? <>Send reset link <Icon name="Mail" size={15} /></>
+                    : mode === "signup" ? <>Create account <Icon name="UserPlus" size={15} /></>
+                    : mode === "reset" ? <>Update password <Icon name="Check" size={15} /></>
+                    : <>Sign in <Icon name="ArrowRight" size={15} /></>}
                 </motion.button>
               </div>
 
-              {/* mode toggle */}
-              <div style={{ marginTop: 18, textAlign: "center", fontSize: 12.5, color: "#5a6b78" }}>
-                {mode === "password" ? (
-                  <>Prefer no password?{" "}
-                    <button type="button" onClick={() => switchMode("magic")} style={{ color: "#1890cc", fontWeight: 600 }}>
-                      Email me a magic link
-                    </button>
+              {/* mode toggles */}
+              <div style={{ marginTop: 18, textAlign: "center", fontSize: 12.5, color: "#5a6b78", lineHeight: 1.9 }}>
+                {mode === "password" && (
+                  <>
+                    <div>
+                      <button type="button" onClick={() => switchMode("magic")} style={{ color: "#1890cc", fontWeight: 600 }}>
+                        Email me a magic link instead
+                      </button>
+                    </div>
+                    <div>
+                      New to Tangent Insight?{" "}
+                      <button type="button" onClick={() => switchMode("signup")} style={{ color: "#1890cc", fontWeight: 700 }}>
+                        Create an account
+                      </button>
+                    </div>
                   </>
-                ) : (
+                )}
+                {mode === "magic" && (
                   <>Have a password?{" "}
                     <button type="button" onClick={() => switchMode("password")} style={{ color: "#1890cc", fontWeight: 600 }}>
-                      Sign in with password
+                      Sign in instead
                     </button>
                   </>
+                )}
+                {mode === "signup" && (
+                  <>Already have an account?{" "}
+                    <button type="button" onClick={() => switchMode("password")} style={{ color: "#1890cc", fontWeight: 600 }}>
+                      Sign in
+                    </button>
+                  </>
+                )}
+                {mode === "forgot" && (
+                  <button type="button" onClick={() => switchMode("password")} style={{ color: "#1890cc", fontWeight: 600 }}>
+                    ← Back to sign in
+                  </button>
                 )}
               </div>
             </form>
