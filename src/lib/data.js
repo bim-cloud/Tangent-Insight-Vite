@@ -164,6 +164,7 @@ export function buildProjectFolders(projects, fileMap, people, metrics) {
 
   // 1) Roll up per-file METRICS into the assigned folder.
   (metrics || []).forEach((m) => {
+    if (!isLikelyHostModel(m.project)) return;   // skip links/system files
     const pid = folderForFile(m.project);
     if (pid == null || !byId[pid]) return;
     const folder = byId[pid];
@@ -178,6 +179,7 @@ export function buildProjectFolders(projects, fileMap, people, metrics) {
 
   // 2) Roll up PEOPLE (their working time) into the folder of the file they're in.
   (people || []).forEach((p) => {
+    if (!isLikelyHostModel(p.project)) return;   // skip if they're "in" a link
     const pid = folderForFile(p.project);
     if (pid == null || !byId[pid]) return;
     const folder = byId[pid];
@@ -207,12 +209,47 @@ export function buildProjectFolders(projects, fileMap, people, metrics) {
 
 // Every distinct central file the system has seen (from metrics OR people),
 // each tagged with its current assignment (project_id or null).
+// Heuristic: does this look like a real OPENED working model (not a Revit link,
+// not a system/temp/background file)? Links and non-host files should never be
+// treated as projects. We exclude:
+//  - common Revit link / system suffixes and names
+//  - backup files (Revit writes name.0001.rvt style backups)
+//  - obvious family files (.rfa) and template files (.rte)
+export function isLikelyHostModel(name) {
+  if (!name || name === "—" || name === "Multi") return false;
+  const n = String(name).trim();
+  const lower = n.toLowerCase();
+
+  // File-type exclusions: families, templates, link caches
+  if (/\.(rfa|rte|rvt\.\d+|\d{4})$/i.test(lower)) return false;   // family/template/backup
+  if (/\.(rfa|rte)\b/i.test(lower)) return false;
+
+  // Revit backup pattern: something.0001, something.0002
+  if (/\.\d{4}$/.test(lower)) return false;
+
+  // Known link / system / background document names
+  const linkMarkers = [
+    "xref", "-link", "_link", " link", "linked",
+    "navisworks", ".nwc", ".nwd", ".ifc", ".dwg",
+    "topography", "shared coordinates",
+  ];
+  if (linkMarkers.some((m) => lower.includes(m))) return false;
+
+  // Loading/splash/system windows that slipped through
+  if (/^(loading|starting|autodesk|home|recent files|new |open )/i.test(lower)) return false;
+
+  return true;
+}
+
 export function allFilesSeen(fileMap, people, metrics) {
   const assigned = {};
   (fileMap || []).forEach((f) => { if (f.project_id != null) assigned[f.file_name] = f.project_id; });
   const seen = new Set();
-  (metrics || []).forEach((m) => { if (m.project && m.project !== "—") seen.add(m.project); });
-  (people || []).forEach((p) => { if (p.project && p.project !== "—") seen.add(p.project); });
+  // Only count files that look like real opened host models.
+  (metrics || []).forEach((m) => { if (isLikelyHostModel(m.project)) seen.add(m.project); });
+  (people || []).forEach((p) => { if (isLikelyHostModel(p.project)) seen.add(p.project); });
+  // Files already assigned by a user are always kept (a human vouched for them).
+  Object.keys(assigned).forEach((f) => seen.add(f));
   return [...seen].map((file) => ({ file, projectId: assigned[file] ?? null }));
 }
 
