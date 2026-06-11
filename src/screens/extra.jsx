@@ -167,14 +167,15 @@ function ATile({ icon, label, value, grad }) {
 
 // ---------- Projects dashboard (#18) ----------
 export function ProjectsScreen({ data, onPickUser, refresh }) {
-  const { folders = [], unassigned = [], projectRows = [] } = data;
+  const { folders = [], filesSeen = [], projectRows = [] } = data;
   const [openFolder, setOpenFolder] = useState(null);
-  const [assigning, setAssigning] = useState(null);   // file name being assigned
+  const [assigning, setAssigning] = useState(null);   // { file } being assigned
+  const [manageOpen, setManageOpen] = useState(false);
   const [q, setQ] = useState("");
   const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
 
+  const unassigned = filesSeen.filter((f) => f.projectId == null);
   const active = folders.filter((f) => f.activeUsers > 0).length;
-  const withWork = folders.filter((f) => f.files.length > 0 || f.users.length > 0);
   const totalHours = folders.reduce((a, f) => a + f.totalHours, 0);
   const contributors = new Set();
   folders.forEach((f) => f.users.forEach((u) => contributors.add(u.id)));
@@ -193,36 +194,46 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
         <ATile icon="Clock" label="Hours today" value={totalHours.toFixed(0) + "h"} grad="var(--grad-amber)" />
       </motion.div>
 
-      {/* Unassigned Revit files — assign them to a project folder */}
+      {/* Toolbar */}
+      <div className="between" style={{ margin: "18px 0 12px" }}>
+        <input className="input" placeholder="Search projects…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320 }} />
+        <div className="row gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={() => setManageOpen(true)}>
+            <Icon name="FolderTree" size={13} /> Manage file assignments
+            {unassigned.length > 0 && <span className="pill pill-warning" style={{ marginLeft: 4 }}>{unassigned.length}</span>}
+          </button>
+        </div>
+      </div>
+
+      {/* Unassigned banner */}
       {unassigned.length > 0 && (
-        <motion.div className="surface" style={{ ...card, marginTop: 16, border: "1px solid rgb(var(--warning)/0.3)" }} variants={riseItem}>
-          <CardTitle title="Unassigned Revit files" subtitle={unassigned.length + " file(s) not yet in a project folder"} icon="FileWarning" />
+        <motion.div className="surface" style={{ ...card, marginBottom: 14, border: "1px solid rgb(var(--warning)/0.3)" }} variants={riseItem}>
+          <div className="row gap-2" style={{ marginBottom: 4 }}>
+            <Icon name="FileWarning" size={15} color="rgb(var(--warning))" />
+            <span style={{ fontWeight: 600, fontSize: 13 }}>{unassigned.length} Revit file(s) need a project</span>
+          </div>
+          <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>These central files have been seen but aren't assigned to any project folder yet. Assign them so their activity rolls up.</div>
           <div className="col gap-2">
-            {unassigned.map((file) => (
-              <div key={file} className="between" style={{ padding: "8px 12px", borderRadius: 10, background: "rgb(var(--bg-sunken))" }}>
+            {unassigned.slice(0, 6).map((f) => (
+              <div key={f.file} className="between" style={{ padding: "8px 12px", borderRadius: 10, background: "rgb(var(--bg-sunken))" }}>
                 <div className="row gap-2" style={{ minWidth: 0 }}>
                   <Icon name="Box" size={14} color="rgb(var(--warning))" />
-                  <span className="mono truncate" style={{ fontSize: 11.5 }}>{file}</span>
+                  <span className="mono truncate" style={{ fontSize: 11.5 }}>{f.file}</span>
                 </div>
-                <button className="btn btn-secondary btn-sm" onClick={() => setAssigning(file)} style={{ flex: "none" }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => setAssigning({ file: f.file })} style={{ flex: "none" }}>
                   <Icon name="FolderInput" size={12} /> Assign
                 </button>
               </div>
             ))}
+            {unassigned.length > 6 && <button className="btn btn-ghost btn-sm" onClick={() => setManageOpen(true)}>View all {unassigned.length} →</button>}
           </div>
         </motion.div>
       )}
 
-      {/* Folder grid */}
-      <div className="between" style={{ margin: "18px 0 12px" }}>
-        <input className="input" placeholder="Search projects…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320 }} />
-        <span className="muted" style={{ fontSize: 12 }}>{visibleFolders.length} of {folders.length} projects</span>
-      </div>
-
       {folders.length === 0 ? (
         <div className="surface" style={card}>
           <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, padding: 8 }}>
-            No project folders yet. Run the <b>0010_projects.sql</b> migration in Supabase to seed the Tangent project list, then Revit files can be assigned to them.
+            No project folders yet. Run the <b>0010_projects.sql</b> migration in Supabase to seed the Tangent project list, then assign Revit files to them.
           </div>
         </div>
       ) : (
@@ -240,7 +251,7 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
               <div className="row gap-3">
                 <MiniStat label="Hours" value={f.totalHours.toFixed(1) + "h"} />
                 <MiniStat label="Users" value={f.users.length} />
-                <MiniStat label="Files" value={f.files.length} />
+                <MiniStat label="Models" value={f.files.length} />
               </div>
             </motion.button>
           ))}
@@ -252,26 +263,43 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
         {folder && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpenFolder(null)}
             style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", justifyContent: "flex-end" }}>
-            <motion.div initial={{ x: 480 }} animate={{ x: 0 }} exit={{ x: 480 }} transition={spring.soft}
+            <motion.div initial={{ x: 500 }} animate={{ x: 0 }} exit={{ x: 500 }} transition={spring.soft}
               onClick={(e) => e.stopPropagation()}
-              style={{ width: 480, maxWidth: "94vw", height: "100%", background: "rgb(var(--bg-elev))", overflowY: "auto", padding: 24 }}>
+              style={{ width: 500, maxWidth: "94vw", height: "100%", background: "rgb(var(--bg-elev))", overflowY: "auto", padding: 24 }}>
               <div className="between" style={{ marginBottom: 6 }}>
                 <div className="row gap-2"><Icon name="Folder" size={18} color="rgb(var(--accent))" /><span className="mono muted" style={{ fontSize: 12 }}>{folder.code}</span></div>
                 <button className="btn btn-ghost btn-icon" onClick={() => setOpenFolder(null)}><Icon name="X" size={16} /></button>
               </div>
               <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 16, lineHeight: 1.3 }}>{folder.name}</div>
 
-              {/* consolidated stats */}
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 18 }}>
                 <DTile label="Total time" value={fmtHM(folder.totalFocusMin)} tone="accent" />
                 <DTile label="Working now" value={folder.activeUsers} tone="success" />
                 <DTile label="Contributors" value={folder.users.length} />
+                <DTile label="Models" value={folder.files.length} />
                 <DTile label="Worksets" value={folder.worksets} />
                 <DTile label="Warnings" value={folder.warnings} tone={folder.warnings > 0 ? "warning" : undefined} />
-                <DTile label="Model size" value={folder.modelSize ? folder.modelSize + " MB" : "—"} />
               </div>
 
-              {/* users who worked on the project + active hours each */}
+              {/* Revit models in this project */}
+              <div className="between" style={{ marginBottom: 8 }}>
+                <span className="micro">Revit models ({folder.files.length})</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => { setOpenFolder(null); setManageOpen(true); }}>
+                  <Icon name="Plus" size={11} /> Add model
+                </button>
+              </div>
+              {folder.files.length === 0 ? <div className="muted" style={{ fontSize: 12, marginBottom: 18 }}>No Revit models assigned yet. Use “Add model” to assign files to this project.</div> : (
+                <div className="col gap-2" style={{ marginBottom: 18 }}>
+                  {folder.files.map((file) => (
+                    <div key={file} className="row gap-2" style={{ padding: "7px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
+                      <Icon name="Box" size={13} color="rgb(var(--accent))" />
+                      <span className="mono truncate" style={{ fontSize: 11, flex: 1 }}>{file}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Users + per-user time */}
               <div className="micro" style={{ marginBottom: 8 }}>Users on this project</div>
               {folder.users.length === 0 ? <div className="muted" style={{ fontSize: 12, marginBottom: 16 }}>No tracked users yet.</div> : (
                 <div className="col gap-2" style={{ marginBottom: 18 }}>
@@ -281,7 +309,7 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
                         <Avatar name={u.name} initials={u.initials} discipline={u.discipline} status={u.status} size={28} />
                         <div style={{ minWidth: 0 }}>
                           <div className="truncate" style={{ fontSize: 12.5, fontWeight: 600 }}>{u.name}</div>
-                          <div className="muted" style={{ fontSize: 10.5, textTransform: "capitalize" }}>{u.status}</div>
+                          <div className="muted truncate" style={{ fontSize: 10, fontFamily: "var(--mono)" }}>{u.file}</div>
                         </div>
                       </div>
                       <span className="tabular" style={{ fontSize: 12, color: "rgb(var(--accent))", flex: "none" }}>{fmtHM(u.focusMin)}</span>
@@ -290,71 +318,65 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
                 </div>
               )}
 
-              {/* Revit files in this folder */}
-              <div className="micro" style={{ marginBottom: 8 }}>Revit files ({folder.files.length})</div>
-              {folder.files.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>No Revit files assigned yet.</div> : (
-                <div className="col gap-2">
-                  {folder.files.map((file) => (
-                    <div key={file} className="row gap-2" style={{ padding: "7px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
-                      <Icon name="Box" size={13} color="rgb(var(--accent))" />
-                      <span className="mono truncate" style={{ fontSize: 11 }}>{file}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <button className="btn btn-secondary btn-sm" style={{ marginTop: 14 }} onClick={() => exportProjectFolder(folder, fmtHM)}>
-                <Icon name="Download" size={12} /> Export project report
+              <button className="btn btn-secondary btn-sm" onClick={() => exportProjectFolder(folder, fmtHM)}>
+                <Icon name="FileSpreadsheet" size={12} /> Export project report
               </button>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Assign-file-to-folder modal */}
+      {/* Assign single file modal */}
       <AnimatePresence>
         {assigning && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setAssigning(null)}
-            style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()} className="surface-solid" style={{ width: 460, maxWidth: "100%", padding: 22, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
-              <div className="between" style={{ marginBottom: 4 }}>
-                <span style={{ fontWeight: 700, fontSize: 15 }}>Assign to project</span>
-                <button className="btn btn-ghost btn-icon" onClick={() => setAssigning(null)}><Icon name="X" size={15} /></button>
-              </div>
-              <div className="mono truncate" style={{ fontSize: 11, color: "rgb(var(--fg-muted))", marginBottom: 14 }}>{assigning}</div>
-              <AssignList file={assigning} projects={projectRows} onDone={() => { setAssigning(null); refresh?.(); }} />
-            </motion.div>
-          </motion.div>
+          <Modal onClose={() => setAssigning(null)} title="Assign to project" subtitle={assigning.file}>
+            <AssignList file={assigning.file} projects={projectRows} onDone={() => { setAssigning(null); refresh?.(); }} />
+          </Modal>
+        )}
+      </AnimatePresence>
+
+      {/* Manage all assignments modal */}
+      <AnimatePresence>
+        {manageOpen && (
+          <Modal onClose={() => setManageOpen(false)} title="Manage Revit file assignments" subtitle="Assign, move, or add Revit models to projects" wide>
+            <ManageAssignments data={data} onChange={refresh} />
+          </Modal>
         )}
       </AnimatePresence>
     </motion.div>
   );
 }
 
+// Generic centered modal
+function Modal({ title, subtitle, children, onClose, wide }) {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+        onClick={(e) => e.stopPropagation()} className="surface-solid"
+        style={{ width: wide ? 640 : 460, maxWidth: "100%", padding: 22, maxHeight: "82vh", display: "flex", flexDirection: "column" }}>
+        <div className="between" style={{ marginBottom: 4 }}>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>{title}</span>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}><Icon name="X" size={15} /></button>
+        </div>
+        {subtitle && <div className="mono truncate" style={{ fontSize: 11, color: "rgb(var(--fg-muted))", marginBottom: 14 }}>{subtitle}</div>}
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// Pick a project for a single file
 function AssignList({ file, projects, onDone }) {
   const [q, setQ] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  const list = projects.filter((p) => !q || (p.code + " " + p.name).toLowerCase().includes(q.toLowerCase())).slice(0, 50);
+  const list = projects.filter((p) => !q || (p.code + " " + p.name).toLowerCase().includes(q.toLowerCase())).slice(0, 60);
 
   async function assign(projectId) {
     setSaving(true); setErr("");
-    try {
-      const token = await auth.getValidToken();
-      if (!token) { setErr("Sign in again to assign files."); setSaving(false); return; }
-      // upsert into project_files (unique on file_name)
-      const r = await fetch(SUPABASE_URL + "/rest/v1/project_files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ file_name: file, project_id: projectId, assigned_at: new Date().toISOString() }),
-      });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        if (r.status === 401 || r.status === 403) throw new Error("Permission denied — run 0010_projects.sql so authenticated users can assign files.");
-        throw new Error(j.message || ("HTTP " + r.status));
-      }
-      onDone?.();
-    } catch (e) { setErr(e.message); setSaving(false); }
+    const r = await assignFileToProject(file, projectId);
+    if (r.error) { setErr(r.error); setSaving(false); } else onDone?.();
   }
 
   return (
@@ -376,12 +398,93 @@ function AssignList({ file, projects, onDone }) {
   );
 }
 
+// Full assignment manager: see every file, its current project, move/unassign,
+// and manually add a Revit file name to assign (for files not yet auto-seen).
+function ManageAssignments({ data, onChange }) {
+  const { filesSeen = [], projectRows = [], folders = [] } = data;
+  const [newFile, setNewFile] = useState("");
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const projName = (id) => { const p = projectRows.find((x) => x.id === id); return p ? p.code + " " + p.name : "—"; };
+
+  async function setAssignment(file, projectId) {
+    setBusy(file); setErr("");
+    const r = await assignFileToProject(file, projectId);
+    if (r.error) setErr(r.error);
+    setBusy(""); onChange?.();
+  }
+  async function addManual() {
+    const f = newFile.trim();
+    if (!f) return;
+    setBusy("__new"); setErr("");
+    const r = await assignFileToProject(f, null);  // create row, unassigned
+    if (r.error) setErr(r.error); else setNewFile("");
+    setBusy(""); onChange?.();
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      {/* add a file manually */}
+      <div className="row gap-2" style={{ marginBottom: 12 }}>
+        <input className="input" placeholder="Paste a Revit file name (e.g. ES-GA10-GA11-...-0000.rvt)" value={newFile}
+          onChange={(e) => setNewFile(e.target.value)} style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11.5 }} />
+        <button className="btn btn-secondary btn-sm" disabled={busy === "__new"} onClick={addManual}><Icon name="Plus" size={12} /> Add</button>
+      </div>
+      {err && <div style={{ fontSize: 11.5, color: "rgb(var(--danger))", marginBottom: 8 }}>{err}</div>}
+
+      <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+        {filesSeen.length === 0 ? (
+          <div className="muted" style={{ fontSize: 12, padding: 12, textAlign: "center" }}>
+            No Revit files seen yet. Paste a file name above to start building the structure, or wait for the agent/plugin to report activity.
+          </div>
+        ) : filesSeen.map((f) => (
+          <div key={f.file} className="between" style={{ padding: "8px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
+            <div className="row gap-2" style={{ minWidth: 0, flex: 1 }}>
+              <Icon name="Box" size={13} color={f.projectId ? "rgb(var(--accent))" : "rgb(var(--warning))"} />
+              <span className="mono truncate" style={{ fontSize: 11 }}>{f.file}</span>
+            </div>
+            <select className="input" value={f.projectId ?? ""} disabled={busy === f.file}
+              onChange={(e) => setAssignment(f.file, e.target.value ? Number(e.target.value) : null)}
+              style={{ width: 200, fontSize: 11.5, flex: "none", padding: "6px 8px" }}>
+              <option value="">— Unassigned —</option>
+              {projectRows.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name}</option>)}
+            </select>
+          </div>
+        ))}
+      </div>
+      <div className="muted" style={{ fontSize: 10.5, marginTop: 10 }}>
+        {filesSeen.filter((f) => f.projectId != null).length} of {filesSeen.length} files assigned.
+        Changing a dropdown moves that model into the chosen project immediately.
+      </div>
+    </div>
+  );
+}
+
+// Shared write: upsert a file→project assignment in Supabase.
+async function assignFileToProject(file, projectId) {
+  try {
+    const token = await auth.getValidToken();
+    if (!token) return { error: "Sign in again to change assignments." };
+    const r = await fetch(SUPABASE_URL + "/rest/v1/project_files", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token, Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ file_name: file, project_id: projectId, assigned_at: new Date().toISOString() }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401 || r.status === 403) return { error: "Permission denied — run 0010_projects.sql so authenticated users can assign files." };
+      return { error: j.message || ("HTTP " + r.status) };
+    }
+    return {};
+  } catch (e) { return { error: e.message }; }
+}
+
 function exportProjectFolder(folder, fmtHM) {
   const rows = folder.users.map((u) => ({
-    Employee: u.name, Status: u.status, "Active Time": fmtHM(u.focusMin), "Hours": u.hours.toFixed(2),
+    Employee: u.name, "Revit Model": u.file, Status: u.status, "Active Time": fmtHM(u.focusMin), "Hours": u.hours.toFixed(2),
   }));
   exportReportXlsx("project-" + folder.code, folder.label + " — Project Report", rows.length ? rows : [{ Note: "No users yet" }],
-    rows.length ? ["Employee", "Status", "Active Time", "Hours"] : ["Note"]);
+    rows.length ? ["Employee", "Revit Model", "Status", "Active Time", "Hours"] : ["Note"]);
 }
 
 
