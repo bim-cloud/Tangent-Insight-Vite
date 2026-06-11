@@ -6,7 +6,7 @@ import { spring, staggerGrid, riseItem } from "../motion/variants.js";
 import { exportAttendanceXlsx, exportReportXlsx } from "../lib/excel.js";
 import { exportCsv } from "../lib/util.js";
 import { auth } from "../lib/auth.js";
-import { SUPABASE_URL, SUPABASE_ANON } from "../lib/data.js";
+import { SUPABASE_URL, SUPABASE_ANON, normalizeFileName } from "../lib/data.js";
 
 const card = { padding: "var(--pad-card)" };
 const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
@@ -488,13 +488,14 @@ function ManageAssignments({ data, onChange }) {
 
 // Shared write: upsert a file→project assignment in Supabase.
 async function assignFileToProject(file, projectId) {
+  const norm = normalizeFileName(file);   // store canonical name so all variants match
   try {
     const token = await auth.getValidToken();
     if (!token) return { error: "Sign in again to change assignments." };
     const r = await fetch(SUPABASE_URL + "/rest/v1/project_files", {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token, Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ file_name: file, project_id: projectId, assigned_at: new Date().toISOString() }),
+      body: JSON.stringify({ file_name: norm, project_id: projectId, assigned_at: new Date().toISOString() }),
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
@@ -516,9 +517,10 @@ function exportProjectFolder(folder, fmtHM) {
 
 // Session-by-session audit trail for a project's files.
 function SessionHistory({ folderFiles, sessions, peopleById }) {
-  const fileSet = new Set(folderFiles || []);
+  const norm = (s) => (s ? String(s).trim().replace(/\.(rvt|rfa|rte)$/i, "").replace(/\s+/g, " ") : "");
+  const fileSet = new Set((folderFiles || []).map(norm));
   const rows = (sessions || [])
-    .filter((s) => fileSet.has(s.project))
+    .filter((s) => fileSet.has(norm(s.project)))
     .sort((a, b) => (b.started_at || "").localeCompare(a.started_at || ""))
     .slice(0, 30);
   if (rows.length === 0) return null;
