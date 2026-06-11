@@ -175,7 +175,10 @@ function ATile({ icon, label, value, grad }) {
 
 // ---------- Projects dashboard (#18) ----------
 export function ProjectsScreen({ data, onPickUser, refresh }) {
-  const { folders = [], filesSeen = [], projectRows = [] } = data;
+  const { folders = [], filesSeen = [], projectRows = [], rawSessions = [], people = [] } = data;
+  const allSessions = rawSessions;
+  const peopleById = {};
+  people.forEach((p) => { peopleById[p.id] = p; });
   const [openFolder, setOpenFolder] = useState(null);
   const [assigning, setAssigning] = useState(null);   // { file } being assigned
   const [manageOpen, setManageOpen] = useState(false);
@@ -316,7 +319,7 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
               )}
 
               {/* Users + per-user time */}
-              <div className="micro" style={{ marginBottom: 8 }}>Users on this project</div>
+              <div className="micro" style={{ marginBottom: 8 }}>Users on this project · accumulated time</div>
               {folder.users.length === 0 ? <div className="muted" style={{ fontSize: 12, marginBottom: 16 }}>No tracked users yet.</div> : (
                 <div className="col gap-2" style={{ marginBottom: 18 }}>
                   {folder.users.sort((a, b) => b.focusMin - a.focusMin).map((u) => (
@@ -325,14 +328,20 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
                         <Avatar name={u.name} initials={u.initials} discipline={u.discipline} status={u.status} size={28} />
                         <div style={{ minWidth: 0 }}>
                           <div className="truncate" style={{ fontSize: 12.5, fontWeight: 600 }}>{u.name}</div>
-                          <div className="muted truncate" style={{ fontSize: 10, fontFamily: "var(--mono)" }}>{u.file}</div>
+                          <div className="muted truncate" style={{ fontSize: 10 }}>
+                            {u.sessionCount ? `${u.sessionCount} session${u.sessionCount > 1 ? "s" : ""}` : "—"}
+                            {u.lastActive ? ` · last ${timeAgo(u.lastActive)}` : ""}
+                          </div>
                         </div>
                       </div>
-                      <span className="tabular" style={{ fontSize: 12, color: "rgb(var(--accent))", flex: "none" }}>{fmtHM(u.focusMin)}</span>
+                      <span className="tabular" style={{ fontSize: 13, fontWeight: 700, color: "rgb(var(--accent))", flex: "none" }}>{fmtHM(u.focusMin)}</span>
                     </button>
                   ))}
                 </div>
               )}
+
+              {/* Session history (audit trail) */}
+              <SessionHistory folderFiles={folder.files} sessions={allSessions} peopleById={peopleById} />
 
               <button className="btn btn-secondary btn-sm" onClick={() => exportProjectFolder(folder, fmtHM)}>
                 <Icon name="FileSpreadsheet" size={12} /> Export project report
@@ -504,6 +513,40 @@ function exportProjectFolder(folder, fmtHM) {
     rows.length ? ["Employee", "Revit Model", "Status", "Active Time", "Hours"] : ["Note"]);
 }
 
+
+// Session-by-session audit trail for a project's files.
+function SessionHistory({ folderFiles, sessions, peopleById }) {
+  const fileSet = new Set(folderFiles || []);
+  const rows = (sessions || [])
+    .filter((s) => fileSet.has(s.project))
+    .sort((a, b) => (b.started_at || "").localeCompare(a.started_at || ""))
+    .slice(0, 30);
+  if (rows.length === 0) return null;
+  const fmtT = (iso) => iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+  const dur = (sec) => { const m = Math.round((sec || 0) / 60); const h = Math.floor(m / 60); return h > 0 ? `${h}h ${m % 60}m` : `${m}m`; };
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div className="micro" style={{ marginBottom: 8 }}>Session history · audit trail</div>
+      <div className="col gap-1" style={{ maxHeight: 240, overflowY: "auto" }}>
+        {rows.map((s) => {
+          const who = peopleById[s.person_id];
+          return (
+            <div key={s.id} className="between" style={{ padding: "7px 10px", borderRadius: 8, background: "rgb(var(--bg-sunken))" }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="row gap-2" style={{ marginBottom: 2 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 600 }}>{who ? who.name : s.person_id}</span>
+                  {s.status === "active" && <span className="pill pill-success" style={{ fontSize: 8.5 }}>active</span>}
+                </div>
+                <div className="muted" style={{ fontSize: 10 }}>{fmtT(s.started_at)} → {s.ended_at ? fmtT(s.ended_at) : "now"}</div>
+              </div>
+              <span className="tabular" style={{ fontSize: 12, fontWeight: 600, color: "rgb(var(--accent))", flex: "none" }}>{dur(s.duration_seconds)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function MiniStat({ label, value }) {
   return <div style={{ flex: 1, padding: "8px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
