@@ -10,6 +10,14 @@ import { SUPABASE_URL, SUPABASE_ANON } from "../lib/data.js";
 
 const card = { padding: "var(--pad-card)" };
 const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
+const timeAgo = (iso) => {
+  if (!iso) return "—";
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return Math.floor(s / 86400) + "d ago";
+};
 
 // ---------- Per-employee detail drawer ----------
 export function EmployeeDrawer({ person, activity, onClose }) {
@@ -253,6 +261,12 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
                 <MiniStat label="Users" value={f.users.length} />
                 <MiniStat label="Models" value={f.files.length} />
               </div>
+              {f.lastActivity && (
+                <div className="row gap-2" style={{ marginTop: 10, fontSize: 10.5, color: "rgb(var(--fg-muted))" }}>
+                  <Icon name="Clock" size={11} />
+                  <span>Latest activity {timeAgo(f.lastActivity)}</span>
+                </div>
+              )}
             </motion.button>
           ))}
         </motion.div>
@@ -270,7 +284,9 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
                 <div className="row gap-2"><Icon name="Folder" size={18} color="rgb(var(--accent))" /><span className="mono muted" style={{ fontSize: 12 }}>{folder.code}</span></div>
                 <button className="btn btn-ghost btn-icon" onClick={() => setOpenFolder(null)}><Icon name="X" size={16} /></button>
               </div>
-              <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 16, lineHeight: 1.3 }}>{folder.name}</div>
+              <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 6, lineHeight: 1.3 }}>{folder.name}</div>
+              {folder.lastActivity && <div className="row gap-2 muted" style={{ fontSize: 11.5, marginBottom: 16 }}><Icon name="Clock" size={12} /> Latest activity {timeAgo(folder.lastActivity)}</div>}
+              {!folder.lastActivity && <div style={{ marginBottom: 16 }} />}
 
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 18 }}>
                 <DTile label="Total time" value={fmtHM(folder.totalFocusMin)} tone="accent" />
