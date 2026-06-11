@@ -127,3 +127,77 @@ export const ROUTE_FOR_KPI = {
   projects: "revit", online: "live", meeting: "teams",
   hours: "analytics", overtime: "reports", staff: "employees",
 };
+
+// ---- Project folders: group Revit files under assigned parent projects ----
+// projects: rows from public.projects
+// fileMap: rows from public.project_files (file_name -> project_id)
+// people: mapped people (their .project is the raw central file or code)
+// metrics: project_metrics rows (per central file)
+// Returns folder objects with consolidated stats.
+export function buildProjectFolders(projects, fileMap, people, metrics) {
+  const byId = {};
+  (projects || []).forEach((p) => {
+    byId[p.id] = {
+      id: p.id, code: p.code, name: p.name, label: p.full_label || (p.code + " " + p.name),
+      status: p.status || "active",
+      files: [], users: [], totalFocusMin: 0, totalHours: 0, activeUsers: 0,
+      worksets: 0, openViews: 0, warnings: 0, linkedModels: 0, modelSize: 0, version: "—",
+    };
+  });
+
+  // file_name -> project_id
+  const fileToProject = {};
+  (fileMap || []).forEach((f) => { if (f.project_id) fileToProject[f.file_name] = f.project_id; });
+
+  // Attribute each person to a folder. A person's "project" field may be the
+  // raw .rvt file name OR already a project code — try file map first, then code.
+  const userByFolder = {};
+  (people || []).forEach((p) => {
+    if (!p.project || p.project === "—") return;
+    let pid = fileToProject[p.project];
+    if (!pid) {
+      // try matching by code prefix (e.g. person.project starts with "1928")
+      const codeMatch = (projects || []).find((pr) => p.project.startsWith(pr.code));
+      if (codeMatch) pid = codeMatch.id;
+    }
+    if (!pid || !byId[pid]) return;
+    (userByFolder[pid] = userByFolder[pid] || []).push(p);
+  });
+
+  Object.keys(userByFolder).forEach((pid) => {
+    const folder = byId[pid];
+    const team = userByFolder[pid];
+    folder.users = team.map((u) => ({
+      id: u.id, name: u.name, initials: u.initials, discipline: u.discipline,
+      status: u.status, focusMin: u.focusMin, hours: u.hours,
+    }));
+    folder.activeUsers = team.filter((u) => u.status !== "offline").length;
+    folder.totalFocusMin = team.reduce((a, u) => a + u.focusMin, 0);
+    folder.totalHours = team.reduce((a, u) => a + u.hours, 0);
+  });
+
+  // Attribute metrics (per central file) to folders via the file map.
+  (metrics || []).forEach((m) => {
+    const pid = fileToProject[m.project];
+    if (!pid || !byId[pid]) return;
+    const folder = byId[pid];
+    folder.files.push(m.project);
+    folder.worksets += m.worksets || 0;
+    folder.openViews += m.open_views || 0;
+    folder.warnings += m.warnings || 0;
+    folder.linkedModels += m.linked_models || 0;
+    folder.modelSize += m.size_mb || 0;
+    if (m.revit_version) folder.version = m.revit_version;
+  });
+
+  return Object.values(byId);
+}
+
+// Unassigned Revit files: central files seen in metrics/people but not mapped.
+export function unassignedFiles(fileMap, people, metrics) {
+  const mapped = new Set((fileMap || []).filter((f) => f.project_id).map((f) => f.file_name));
+  const seen = new Set();
+  (metrics || []).forEach((m) => { if (m.project) seen.add(m.project); });
+  (people || []).forEach((p) => { if (p.project && p.project !== "—") seen.add(p.project); });
+  return [...seen].filter((f) => !mapped.has(f));
+}

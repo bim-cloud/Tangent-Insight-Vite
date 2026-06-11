@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { rest, mapPerson, mapEvent, deriveProjects, mergeMetrics, computeKpis, buildHeatmap } from "./data.js";
+import { rest, mapPerson, mapEvent, deriveProjects, mergeMetrics, computeKpis, buildHeatmap, buildProjectFolders, unassignedFiles } from "./data.js";
 
 // Central live-data hook. Polls every 20s, exposes a manual refresh, and
 // reports connection state. Honest empty arrays on failure (never fake names).
@@ -16,12 +16,14 @@ export function useLiveData() {
   const load = useCallback(async () => {
     const today = new Date().toISOString().slice(0, 10);
     try {
-      const [people_r, acts_r, att_r, mach_r, metrics_r] = await Promise.allSettled([
+      const [people_r, acts_r, att_r, mach_r, metrics_r, projects_r, files_r] = await Promise.allSettled([
         rest("people", "order=name"),
         rest("activity_events", "order=occurred_at.desc&limit=200"),
         rest("attendance", "work_date=eq." + today),
         rest("agent_machines", "select=*&order=last_seen.desc"),
         rest("project_metrics", "select=*"),
+        rest("projects", "select=*&order=code"),
+        rest("project_files", "select=*"),
       ]);
 
       if (people_r.status !== "fulfilled" || !Array.isArray(people_r.value)) {
@@ -46,12 +48,20 @@ export function useLiveData() {
       const mach = mach_r.status === "fulfilled" ? mach_r.value : [];
       const online = mach.filter((m) => m.online).length;
 
+      const projectRows = projects_r.status === "fulfilled" && Array.isArray(projects_r.value) ? projects_r.value : [];
+      const fileRows = files_r.status === "fulfilled" && Array.isArray(files_r.value) ? files_r.value : [];
+      const metricRows = metrics_r.status === "fulfilled" && Array.isArray(metrics_r.value) ? metrics_r.value : [];
+      const folders = buildProjectFolders(projectRows, fileRows, people, metricRows);
+      const unassigned = unassignedFiles(fileRows, people, metricRows);
+
       setData({
         people, projects, activity: acts, attendance,
         kpis: computeKpis(people, projects),
         heatmap: buildHeatmap(acts),
         fleet: { total: mach.length, online, offline: mach.length - online },
         machines: mach,
+        folders, unassigned,
+        projectRows, fileRows,
       });
       setLive(true);
       setLastSync(new Date());
