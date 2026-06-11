@@ -17,7 +17,7 @@ function Empty({ children }) {
 
 // ---------- PROJECT MONITORING ----------
 export function RevitScreen({ data }) {
-  const { projects } = data;
+  const { projects, people = [] } = data;
   const [sel, setSel] = useState(null);
   const p = projects.find((x) => x.code === sel);
 
@@ -72,6 +72,10 @@ export function RevitScreen({ data }) {
                 <Metric label="Revit" value={p.version} big />
               </div>
               {p.lastUser && <div className="muted" style={{ fontSize: 11.5, marginTop: 16 }}>Last reported by {p.lastUser}{p.updatedAt ? " · " + new Date(p.updatedAt).toLocaleString("en-GB") : ""}</div>}
+
+              {/* Per-user working time on this central file (#4) */}
+              <UsersOnFile fileCode={p.code} people={people} />
+
               <div className="muted" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.6 }}>
                 Metrics come from the Tangent Insight Revit plugin (worksets, open views, warnings, linked models, file size). Hard clashes aren't shown — that data lives in Navisworks, not the Revit API.
               </div>
@@ -82,6 +86,40 @@ export function RevitScreen({ data }) {
     </motion.div>
   );
 }
+// Per-user active working time on a given central file (#4 detailed tracking).
+function UsersOnFile({ fileCode, people }) {
+  const team = (people || []).filter((p) => p.project && (p.project === fileCode || p.project.startsWith(fileCode)));
+  const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
+  const working = team.filter((u) => u.status !== "offline").length;
+  const totalMin = team.reduce((a, u) => a + u.focusMin, 0);
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div className="between" style={{ marginBottom: 8 }}>
+        <span className="micro">Users on this file</span>
+        <span className="muted" style={{ fontSize: 11 }}>{working} working · {fmtHM(totalMin)} total</span>
+      </div>
+      {team.length === 0 ? (
+        <div className="muted" style={{ fontSize: 11.5 }}>No tracked users on this file yet.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {team.sort((a, b) => b.focusMin - a.focusMin).map((u) => (
+            <div key={u.id} className="between" style={{ padding: "7px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
+              <div className="row gap-2" style={{ minWidth: 0 }}>
+                <Avatar name={u.name} initials={u.initials} discipline={u.discipline} status={u.status} size={26} />
+                <div style={{ minWidth: 0 }}>
+                  <div className="truncate" style={{ fontSize: 12, fontWeight: 600 }}>{u.name}</div>
+                  <div className="muted" style={{ fontSize: 10, textTransform: "capitalize" }}>{u.status}</div>
+                </div>
+              </div>
+              <span className="tabular" style={{ fontSize: 12, color: "rgb(var(--accent))", flex: "none" }}>{fmtHM(u.focusMin)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Metric({ label, value, tone, big }) {
   return (
     <div style={{ padding: big ? 12 : 8, borderRadius: 10, background: "rgb(var(--bg-sunken))" }}>

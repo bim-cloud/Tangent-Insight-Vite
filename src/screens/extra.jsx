@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from "recharts";
 import { Icon, CardTitle, Avatar, Pill } from "../components/primitives.jsx";
 import { spring, staggerGrid, riseItem } from "../motion/variants.js";
-import { exportAttendanceXlsx } from "../lib/excel.js";
+import { exportAttendanceXlsx, exportReportXlsx } from "../lib/excel.js";
 import { exportCsv } from "../lib/util.js";
+import { auth } from "../lib/auth.js";
+import { SUPABASE_URL, SUPABASE_ANON } from "../lib/data.js";
 
 const card = { padding: "var(--pad-card)" };
 const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
@@ -164,59 +166,225 @@ function ATile({ icon, label, value, grad }) {
 }
 
 // ---------- Projects dashboard (#18) ----------
-export function ProjectsScreen({ data, onPickUser }) {
-  const { projects, people, machines = [] } = data;
+export function ProjectsScreen({ data, onPickUser, refresh }) {
+  const { folders = [], unassigned = [], projectRows = [] } = data;
+  const [openFolder, setOpenFolder] = useState(null);
+  const [assigning, setAssigning] = useState(null);   // file name being assigned
+  const [q, setQ] = useState("");
+  const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
+
+  const active = folders.filter((f) => f.activeUsers > 0).length;
+  const withWork = folders.filter((f) => f.files.length > 0 || f.users.length > 0);
+  const totalHours = folders.reduce((a, f) => a + f.totalHours, 0);
+  const contributors = new Set();
+  folders.forEach((f) => f.users.forEach((u) => contributors.add(u.id)));
+
+  const folder = folders.find((f) => f.id === openFolder);
+  const visibleFolders = folders
+    .filter((f) => !q || f.label.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => (b.activeUsers - a.activeUsers) || (b.totalHours - a.totalHours) || a.code.localeCompare(b.code));
+
   return (
     <motion.div variants={staggerGrid} initial="initial" animate="animate">
       <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))" }} variants={staggerGrid}>
-        <ATile icon="FolderKanban" label="Active projects" value={projects.filter((p) => p.activeUsers > 0).length} grad="var(--grad-cyan)" />
-        <ATile icon="Boxes" label="Total tracked" value={projects.length} grad="var(--grad-navy)" />
-        <ATile icon="Users" label="Contributors" value={new Set(people.filter((p) => p.project !== "—").map((p) => p.id)).size} grad="var(--grad-emerald)" />
-        <ATile icon="Clock" label="Hours today" value={people.reduce((a, p) => a + (p.project !== "—" ? p.hours : 0), 0).toFixed(0) + "h"} grad="var(--grad-amber)" />
+        <ATile icon="FolderKanban" label="Total projects" value={folders.length} grad="var(--grad-cyan)" />
+        <ATile icon="Activity" label="Active now" value={active} grad="var(--grad-emerald)" />
+        <ATile icon="Users" label="Contributors" value={contributors.size} grad="var(--grad-navy)" />
+        <ATile icon="Clock" label="Hours today" value={totalHours.toFixed(0) + "h"} grad="var(--grad-amber)" />
       </motion.div>
 
-      <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))", marginTop: 16 }} variants={staggerGrid}>
-        {projects.length === 0 ? <div className="surface" style={card}><div className="muted" style={{ fontSize: 12, padding: 16, textAlign: "center" }}>No projects yet. They appear when the agent/plugin observes a central model.</div></div> : projects.map((pr) => {
-          const team = people.filter((p) => p.project === pr.code);
-          const hours = team.reduce((a, p) => a + p.hours, 0);
-          // Autodesk IDs used on this project (from machines whose user works it)
-          const ids = [...new Set(machines.filter((m) => team.some((t) => t.id === m.person_id)).map((m) => m.autodesk_user).filter((x) => x && x.includes("@")))];
-          return (
-            <motion.div key={pr.code} variants={riseItem} className="surface surface-hover" style={card}>
-              <div className="between" style={{ marginBottom: 12 }}>
-                <div className="mono" style={{ fontSize: 13, fontWeight: 700 }}>{pr.code}</div>
-                <Pill tone={pr.activeUsers > 0 ? "success" : "neutral"} dot>{pr.activeUsers > 0 ? "live" : "idle"}</Pill>
+      {/* Unassigned Revit files — assign them to a project folder */}
+      {unassigned.length > 0 && (
+        <motion.div className="surface" style={{ ...card, marginTop: 16, border: "1px solid rgb(var(--warning)/0.3)" }} variants={riseItem}>
+          <CardTitle title="Unassigned Revit files" subtitle={unassigned.length + " file(s) not yet in a project folder"} icon="FileWarning" />
+          <div className="col gap-2">
+            {unassigned.map((file) => (
+              <div key={file} className="between" style={{ padding: "8px 12px", borderRadius: 10, background: "rgb(var(--bg-sunken))" }}>
+                <div className="row gap-2" style={{ minWidth: 0 }}>
+                  <Icon name="Box" size={14} color="rgb(var(--warning))" />
+                  <span className="mono truncate" style={{ fontSize: 11.5 }}>{file}</span>
+                </div>
+                <button className="btn btn-secondary btn-sm" onClick={() => setAssigning(file)} style={{ flex: "none" }}>
+                  <Icon name="FolderInput" size={12} /> Assign
+                </button>
               </div>
-              <div className="row gap-3" style={{ marginBottom: 12 }}>
-                <MiniStat label="Hours" value={hours.toFixed(1) + "h"} />
-                <MiniStat label="Users" value={`${pr.activeUsers}/${pr.totalUsers}`} />
-                <MiniStat label="Warnings" value={pr.warnings} />
+            ))}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Folder grid */}
+      <div className="between" style={{ margin: "18px 0 12px" }}>
+        <input className="input" placeholder="Search projects…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320 }} />
+        <span className="muted" style={{ fontSize: 12 }}>{visibleFolders.length} of {folders.length} projects</span>
+      </div>
+
+      {folders.length === 0 ? (
+        <div className="surface" style={card}>
+          <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, padding: 8 }}>
+            No project folders yet. Run the <b>0010_projects.sql</b> migration in Supabase to seed the Tangent project list, then Revit files can be assigned to them.
+          </div>
+        </div>
+      ) : (
+        <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))" }} variants={staggerGrid}>
+          {visibleFolders.map((f) => (
+            <motion.button key={f.id} variants={riseItem} onClick={() => setOpenFolder(f.id)}
+              whileHover={{ y: -3, transition: spring.snappy }} whileTap={{ scale: 0.98 }}
+              className="surface surface-hover" style={{ ...card, textAlign: "left" }}>
+              <div className="row gap-2" style={{ marginBottom: 10 }}>
+                <Icon name="Folder" size={16} color="rgb(var(--accent))" />
+                <span className="mono" style={{ fontSize: 11, color: "rgb(var(--fg-muted))" }}>{f.code}</span>
+                {f.activeUsers > 0 && <span style={{ marginLeft: "auto" }}><Pill tone="success" dot>{f.activeUsers} live</Pill></span>}
               </div>
-              {/* contributors */}
-              <div className="micro" style={{ marginBottom: 6 }}>Working now</div>
-              <div className="row gap-2" style={{ flexWrap: "wrap", marginBottom: ids.length ? 12 : 0 }}>
-                {team.filter((t) => t.status !== "offline").length === 0 ? <span className="muted" style={{ fontSize: 11.5 }}>No one active</span> :
-                  team.filter((t) => t.status !== "offline").map((t) => (
-                    <button key={t.id} onClick={() => onPickUser?.(t)} title={t.name} style={{ display: "inline-flex" }}>
-                      <Avatar name={t.name} initials={t.initials} discipline={t.discipline} status={t.status} size={28} />
+              <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.35, marginBottom: 12, minHeight: 34 }}>{f.name}</div>
+              <div className="row gap-3">
+                <MiniStat label="Hours" value={f.totalHours.toFixed(1) + "h"} />
+                <MiniStat label="Users" value={f.users.length} />
+                <MiniStat label="Files" value={f.files.length} />
+              </div>
+            </motion.button>
+          ))}
+        </motion.div>
+      )}
+
+      {/* Folder detail drawer */}
+      <AnimatePresence>
+        {folder && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpenFolder(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", justifyContent: "flex-end" }}>
+            <motion.div initial={{ x: 480 }} animate={{ x: 0 }} exit={{ x: 480 }} transition={spring.soft}
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: 480, maxWidth: "94vw", height: "100%", background: "rgb(var(--bg-elev))", overflowY: "auto", padding: 24 }}>
+              <div className="between" style={{ marginBottom: 6 }}>
+                <div className="row gap-2"><Icon name="Folder" size={18} color="rgb(var(--accent))" /><span className="mono muted" style={{ fontSize: 12 }}>{folder.code}</span></div>
+                <button className="btn btn-ghost btn-icon" onClick={() => setOpenFolder(null)}><Icon name="X" size={16} /></button>
+              </div>
+              <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 16, lineHeight: 1.3 }}>{folder.name}</div>
+
+              {/* consolidated stats */}
+              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 18 }}>
+                <DTile label="Total time" value={fmtHM(folder.totalFocusMin)} tone="accent" />
+                <DTile label="Working now" value={folder.activeUsers} tone="success" />
+                <DTile label="Contributors" value={folder.users.length} />
+                <DTile label="Worksets" value={folder.worksets} />
+                <DTile label="Warnings" value={folder.warnings} tone={folder.warnings > 0 ? "warning" : undefined} />
+                <DTile label="Model size" value={folder.modelSize ? folder.modelSize + " MB" : "—"} />
+              </div>
+
+              {/* users who worked on the project + active hours each */}
+              <div className="micro" style={{ marginBottom: 8 }}>Users on this project</div>
+              {folder.users.length === 0 ? <div className="muted" style={{ fontSize: 12, marginBottom: 16 }}>No tracked users yet.</div> : (
+                <div className="col gap-2" style={{ marginBottom: 18 }}>
+                  {folder.users.sort((a, b) => b.focusMin - a.focusMin).map((u) => (
+                    <button key={u.id} onClick={() => onPickUser?.(u)} className="between" style={{ padding: "8px 10px", borderRadius: 10, background: "rgb(var(--bg-sunken))", textAlign: "left" }}>
+                      <div className="row gap-2" style={{ minWidth: 0 }}>
+                        <Avatar name={u.name} initials={u.initials} discipline={u.discipline} status={u.status} size={28} />
+                        <div style={{ minWidth: 0 }}>
+                          <div className="truncate" style={{ fontSize: 12.5, fontWeight: 600 }}>{u.name}</div>
+                          <div className="muted" style={{ fontSize: 10.5, textTransform: "capitalize" }}>{u.status}</div>
+                        </div>
+                      </div>
+                      <span className="tabular" style={{ fontSize: 12, color: "rgb(var(--accent))", flex: "none" }}>{fmtHM(u.focusMin)}</span>
                     </button>
                   ))}
-              </div>
-              {ids.length > 0 && (
-                <>
-                  <div className="micro" style={{ marginBottom: 6 }}>Autodesk IDs in use</div>
-                  <div className="col gap-2">
-                    {ids.map((id) => <span key={id} className="mono" style={{ fontSize: 10.5, color: "rgb(var(--fg-soft))" }}>{id}</span>)}
-                  </div>
-                </>
+                </div>
               )}
+
+              {/* Revit files in this folder */}
+              <div className="micro" style={{ marginBottom: 8 }}>Revit files ({folder.files.length})</div>
+              {folder.files.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>No Revit files assigned yet.</div> : (
+                <div className="col gap-2">
+                  {folder.files.map((file) => (
+                    <div key={file} className="row gap-2" style={{ padding: "7px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
+                      <Icon name="Box" size={13} color="rgb(var(--accent))" />
+                      <span className="mono truncate" style={{ fontSize: 11 }}>{file}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button className="btn btn-secondary btn-sm" style={{ marginTop: 14 }} onClick={() => exportProjectFolder(folder, fmtHM)}>
+                <Icon name="Download" size={12} /> Export project report
+              </button>
             </motion.div>
-          );
-        })}
-      </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Assign-file-to-folder modal */}
+      <AnimatePresence>
+        {assigning && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setAssigning(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()} className="surface-solid" style={{ width: 460, maxWidth: "100%", padding: 22, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+              <div className="between" style={{ marginBottom: 4 }}>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>Assign to project</span>
+                <button className="btn btn-ghost btn-icon" onClick={() => setAssigning(null)}><Icon name="X" size={15} /></button>
+              </div>
+              <div className="mono truncate" style={{ fontSize: 11, color: "rgb(var(--fg-muted))", marginBottom: 14 }}>{assigning}</div>
+              <AssignList file={assigning} projects={projectRows} onDone={() => { setAssigning(null); refresh?.(); }} />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
+
+function AssignList({ file, projects, onDone }) {
+  const [q, setQ] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const list = projects.filter((p) => !q || (p.code + " " + p.name).toLowerCase().includes(q.toLowerCase())).slice(0, 50);
+
+  async function assign(projectId) {
+    setSaving(true); setErr("");
+    try {
+      const token = await auth.getValidToken();
+      if (!token) { setErr("Sign in again to assign files."); setSaving(false); return; }
+      // upsert into project_files (unique on file_name)
+      const r = await fetch(SUPABASE_URL + "/rest/v1/project_files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ file_name: file, project_id: projectId, assigned_at: new Date().toISOString() }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        if (r.status === 401 || r.status === 403) throw new Error("Permission denied — run 0010_projects.sql so authenticated users can assign files.");
+        throw new Error(j.message || ("HTTP " + r.status));
+      }
+      onDone?.();
+    } catch (e) { setErr(e.message); setSaving(false); }
+  }
+
+  return (
+    <>
+      <input className="input" placeholder="Search projects…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 10 }} autoFocus />
+      {err && <div style={{ fontSize: 11.5, color: "rgb(var(--danger))", marginBottom: 8 }}>{err}</div>}
+      <div className="col gap-1" style={{ overflowY: "auto" }}>
+        {list.map((p) => (
+          <button key={p.id} disabled={saving} onClick={() => assign(p.id)}
+            className="row gap-2" style={{ padding: "9px 11px", borderRadius: 9, textAlign: "left", background: "rgb(var(--bg-sunken))" }}>
+            <Icon name="Folder" size={13} color="rgb(var(--accent))" />
+            <span className="mono muted" style={{ fontSize: 10.5 }}>{p.code}</span>
+            <span style={{ fontSize: 12, fontWeight: 500 }}>{p.name}</span>
+          </button>
+        ))}
+        {list.length === 0 && <div className="muted" style={{ fontSize: 12, padding: 10, textAlign: "center" }}>No matching projects.</div>}
+      </div>
+    </>
+  );
+}
+
+function exportProjectFolder(folder, fmtHM) {
+  const rows = folder.users.map((u) => ({
+    Employee: u.name, Status: u.status, "Active Time": fmtHM(u.focusMin), "Hours": u.hours.toFixed(2),
+  }));
+  exportReportXlsx("project-" + folder.code, folder.label + " — Project Report", rows.length ? rows : [{ Note: "No users yet" }],
+    rows.length ? ["Employee", "Status", "Active Time", "Hours"] : ["Note"]);
+}
+
+
 function MiniStat({ label, value }) {
   return <div style={{ flex: 1, padding: "8px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
     <div className="micro" style={{ fontSize: 9 }}>{label}</div>

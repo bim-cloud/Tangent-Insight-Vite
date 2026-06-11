@@ -8,11 +8,15 @@ import { motion } from "framer-motion";
 //
 // `variant="dashboard"` makes it fixed/full-screen and even fainter so content
 // stays readable; `variant="login"` is the richer version for the auth page.
-export default function ArchBackground({ variant = "login", theme = "light" }) {
+export default function ArchBackground({ variant = "login", theme = "light", static: isStatic = false }) {
   const navy = "#00243c";
   const blue = "#1890cc";
   const dash = variant === "dashboard";
   const dark = theme === "dark";
+
+  // When static, animations are disabled — the sketch sits still and faded.
+  // (Dashboard uses this; the login page keeps the gentle motion.)
+  const anim = (animateVal) => (isStatic ? undefined : animateVal);
 
   // On dark dashboards, strokes need to be light to read.
   const strokeMain = dark ? "#3db5e8" : navy;
@@ -37,7 +41,7 @@ export default function ArchBackground({ variant = "login", theme = "light" }) {
       {/* Layer 1 — site-plan rings + contours, slow drift */}
       <motion.svg viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice"
         style={{ position: "absolute", top: "-6%", left: "-10%", width: dash ? "48%" : "70%", height: "auto", opacity: baseOpacity }}
-        initial={{ x: 0, y: 0 }} animate={{ x: [0, 24, 0], y: [0, -16, 0] }}
+        initial={{ x: 0, y: 0 }} animate={anim({ x: [0, 24, 0], y: [0, -16, 0] })}
         transition={{ duration: 32, repeat: Infinity, ease: "easeInOut" }}>
         <g fill="none" stroke={strokeMain} strokeWidth="1" opacity="0.18">
           <circle cx="220" cy="220" r="60" /><circle cx="220" cy="220" r="110" />
@@ -54,7 +58,7 @@ export default function ArchBackground({ variant = "login", theme = "light" }) {
       {/* Layer 2 — drawing sheet + building elevation, opposite drift */}
       <motion.svg viewBox="0 0 600 600" preserveAspectRatio="xMidYMid slice"
         style={{ position: "absolute", bottom: "-8%", right: "-6%", width: dash ? "40%" : "55%", height: "auto", opacity: baseOpacity }}
-        initial={{ x: 0, y: 0 }} animate={{ x: [0, -20, 0], y: [0, 14, 0] }}
+        initial={{ x: 0, y: 0 }} animate={anim({ x: [0, -20, 0], y: [0, 14, 0] })}
         transition={{ duration: 38, repeat: Infinity, ease: "easeInOut" }}>
         <g fill="none" stroke={strokeMain} strokeWidth="1" opacity="0.16">
           <rect x="60" y="60" width="480" height="480" />
@@ -74,7 +78,7 @@ export default function ArchBackground({ variant = "login", theme = "light" }) {
       {/* Layer 3 — landscape contour strokes drifting across the middle */}
       <motion.svg viewBox="0 0 1000 400" preserveAspectRatio="none"
         style={{ position: "absolute", top: "40%", left: 0, width: "100%", height: "28%", opacity: baseOpacity * 0.85 }}
-        initial={{ x: 0 }} animate={{ x: [0, -40, 0] }}
+        initial={{ x: 0 }} animate={anim({ x: [0, -40, 0] })}
         transition={{ duration: 44, repeat: Infinity, ease: "easeInOut" }}>
         <g fill="none" stroke={strokeBlue} strokeWidth="1" opacity="0.14">
           <path d="M0 200 C200 140 400 260 600 200 S1000 140 1000 200" />
@@ -90,20 +94,20 @@ export default function ArchBackground({ variant = "login", theme = "light" }) {
           d="M150 480 L150 300 L260 300 L260 200 L420 200 L420 360 L560 360 L560 260 L700 260 L700 420 L840 420"
           fill="none" stroke={strokeBlue} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
           initial={{ pathLength: 0, opacity: 0.5 }}
-          animate={{ pathLength: [0, 1, 1, 0], opacity: [0.5, 0.5, 0.5, 0] }}
+          animate={anim({ pathLength: [0, 1, 1, 0], opacity: [0.5, 0.5, 0.5, 0] })}
           transition={{ duration: 14, times: [0, 0.55, 0.85, 1], repeat: Infinity, ease: "easeInOut" }} />
         {/* pen tip marker following the line start area */}
         <motion.circle r="4" fill={strokeBlue}
           initial={{ opacity: 0 }}
-          animate={{ opacity: [0, 1, 1, 0],
-            cx: [150, 420, 700, 840], cy: [480, 200, 260, 420] }}
+          animate={anim({ opacity: [0, 1, 1, 0],
+            cx: [150, 420, 700, 840], cy: [480, 200, 260, 420] })}
           transition={{ duration: 14, times: [0, 0.4, 0.7, 0.95], repeat: Infinity, ease: "easeInOut" }} />
       </svg>
 
       {/* Layer 5 — BIM coordination crosshair grid that fades in/out */}
       <motion.svg viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet"
         style={{ position: "absolute", top: "12%", right: dash ? "20%" : "12%", width: dash ? "24%" : "30%", height: "auto" }}
-        animate={{ opacity: [0.05, 0.18, 0.05] }} transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}>
+        animate={anim({ opacity: [0.05, 0.18, 0.05] })} transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}>
         <g fill="none" stroke={strokeMain} strokeWidth="1" opacity="0.5">
           <circle cx="300" cy="300" r="8" />
           <line x1="300" y1="120" x2="300" y2="480" strokeDasharray="3 5" />
@@ -113,7 +117,7 @@ export default function ArchBackground({ variant = "login", theme = "light" }) {
       </motion.svg>
 
       {/* Layer 6 — slow floating dimension dots */}
-      <FloatingDots blue={strokeBlue} />
+      <FloatingDots blue={strokeBlue} isStatic={isStatic} />
 
       {/* vignette to keep content/form readable */}
       {!dash && (
@@ -123,7 +127,7 @@ export default function ArchBackground({ variant = "login", theme = "light" }) {
   );
 }
 
-function FloatingDots({ blue }) {
+function FloatingDots({ blue, isStatic }) {
   const dots = [
     { x: "12%", y: "18%", d: 26 }, { x: "78%", y: "22%", d: 32 }, { x: "65%", y: "12%", d: 28 },
     { x: "30%", y: "72%", d: 36 }, { x: "88%", y: "60%", d: 30 }, { x: "20%", y: "55%", d: 34 },
@@ -133,7 +137,7 @@ function FloatingDots({ blue }) {
       {dots.map((dt, i) => (
         <motion.div key={i}
           initial={{ opacity: 0.1, y: 0 }}
-          animate={{ opacity: [0.08, 0.22, 0.08], y: [0, -12, 0] }}
+          animate={isStatic ? undefined : { opacity: [0.08, 0.22, 0.08], y: [0, -12, 0] }}
           transition={{ duration: dt.d, repeat: Infinity, ease: "easeInOut", delay: i * 1.5 }}
           style={{ position: "absolute", left: dt.x, top: dt.y, height: 6, width: 6, borderRadius: "50%", background: blue }}
         />
