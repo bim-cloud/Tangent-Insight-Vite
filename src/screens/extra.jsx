@@ -458,6 +458,7 @@ function ManageAssignments({ data, onChange }) {
             <div className="row gap-2" style={{ minWidth: 0, flex: 1 }}>
               <Icon name="Box" size={13} color={f.projectId ? "rgb(var(--accent))" : "rgb(var(--warning))"} />
               <span className="mono truncate" style={{ fontSize: 11 }}>{f.file}</span>
+              {f.source === "revit_plugin" && <span className="pill pill-success" style={{ fontSize: 9, flex: "none" }} title="Confirmed by the Revit plugin as an opened model">verified</span>}
             </div>
             <select className="input" value={f.projectId ?? ""} disabled={busy === f.file}
               onChange={(e) => setAssignment(f.file, e.target.value ? Number(e.target.value) : null)}
