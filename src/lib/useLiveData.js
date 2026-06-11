@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { rest, mapPerson, mapEvent, deriveProjects, mergeMetrics, computeKpis, buildHeatmap, buildProjectFolders, unassignedFiles } from "./data.js";
+import { rest, mapPerson, mapEvent, deriveProjects, mergeMetrics, computeKpis, buildHeatmap, buildProjectFolders, unassignedFiles, allFilesSeen } from "./data.js";
 
 // Central live-data hook. Polls every 20s, exposes a manual refresh, and
 // reports connection state. Honest empty arrays on failure (never fake names).
@@ -53,6 +53,7 @@ export function useLiveData() {
       const metricRows = metrics_r.status === "fulfilled" && Array.isArray(metrics_r.value) ? metrics_r.value : [];
       const folders = buildProjectFolders(projectRows, fileRows, people, metricRows);
       const unassigned = unassignedFiles(fileRows, people, metricRows);
+      const filesSeen = allFilesSeen(fileRows, people, metricRows);
 
       setData({
         people, projects, activity: acts, attendance,
@@ -60,7 +61,7 @@ export function useLiveData() {
         heatmap: buildHeatmap(acts),
         fleet: { total: mach.length, online, offline: mach.length - online },
         machines: mach,
-        folders, unassigned,
+        folders, unassigned, filesSeen,
         projectRows, fileRows,
       });
       setLive(true);
