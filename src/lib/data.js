@@ -146,7 +146,7 @@ export function buildProjectFolders(projects, fileMap, people, metrics) {
     byId[p.id] = {
       id: p.id, code: p.code, name: p.name, label: p.full_label || (p.code + " " + p.name),
       status: p.status || "active",
-      files: [], users: [], userIds: new Set(),
+      files: [], users: [], userIds: new Set(), lastActivity: null,
       totalFocusMin: 0, totalHours: 0, activeUsers: 0,
       worksets: 0, openViews: 0, warnings: 0, linkedModels: 0, modelSize: 0, version: "—",
     };
@@ -162,9 +162,15 @@ export function buildProjectFolders(projects, fileMap, people, metrics) {
     return fileToProject[file] ?? null;
   }
 
+  // Only plugin-reported files are valid opened models.
+  const pluginFiles = new Set();
+  (metrics || []).forEach((m) => { if (m.source === "revit_plugin" && m.project) pluginFiles.add(m.project); });
+  // Manually-assigned files are also trusted.
+  Object.keys(fileToProject).forEach((f) => pluginFiles.add(f));
+
   // 1) Roll up per-file METRICS into the assigned folder.
   (metrics || []).forEach((m) => {
-    if (!isLikelyHostModel(m.project)) return;   // skip links/system files
+    if (!pluginFiles.has(m.project)) return;     // skip non-opened (links/agent) files
     const pid = folderForFile(m.project);
     if (pid == null || !byId[pid]) return;
     const folder = byId[pid];
@@ -175,11 +181,12 @@ export function buildProjectFolders(projects, fileMap, people, metrics) {
     folder.linkedModels += m.linked_models || 0;
     folder.modelSize += m.size_mb || 0;
     if (m.revit_version) folder.version = m.revit_version;
+    if (m.updated_at && (!folder.lastActivity || m.updated_at > folder.lastActivity)) folder.lastActivity = m.updated_at;
   });
 
   // 2) Roll up PEOPLE (their working time) into the folder of the file they're in.
   (people || []).forEach((p) => {
-    if (!isLikelyHostModel(p.project)) return;   // skip if they're "in" a link
+    if (!pluginFiles.has(p.project)) return;     // only count people in a real opened model
     const pid = folderForFile(p.project);
     if (pid == null || !byId[pid]) return;
     const folder = byId[pid];
@@ -207,50 +214,34 @@ export function buildProjectFolders(projects, fileMap, people, metrics) {
   return Object.values(byId);
 }
 
-// Every distinct central file the system has seen (from metrics OR people),
-// each tagged with its current assignment (project_id or null).
-// Heuristic: does this look like a real OPENED working model (not a Revit link,
-// not a system/temp/background file)? Links and non-host files should never be
-// treated as projects. We exclude:
-//  - common Revit link / system suffixes and names
-//  - backup files (Revit writes name.0001.rvt style backups)
-//  - obvious family files (.rfa) and template files (.rte)
-export function isLikelyHostModel(name) {
-  if (!name || name === "—" || name === "Multi") return false;
-  const n = String(name).trim();
-  const lower = n.toLowerCase();
-
-  // File-type exclusions: families, templates, link caches
-  if (/\.(rfa|rte|rvt\.\d+|\d{4})$/i.test(lower)) return false;   // family/template/backup
-  if (/\.(rfa|rte)\b/i.test(lower)) return false;
-
-  // Revit backup pattern: something.0001, something.0002
-  if (/\.\d{4}$/.test(lower)) return false;
-
-  // Known link / system / background document names
-  const linkMarkers = [
-    "xref", "-link", "_link", " link", "linked",
-    "navisworks", ".nwc", ".nwd", ".ifc", ".dwg",
-    "topography", "shared coordinates",
-  ];
-  if (linkMarkers.some((m) => lower.includes(m))) return false;
-
-  // Loading/splash/system windows that slipped through
-  if (/^(loading|starting|autodesk|home|recent files|new |open )/i.test(lower)) return false;
-
-  return true;
+// A file is a real OPENED working model only if the Revit PLUGIN reported it.
+// The plugin reports the host document the user opened and never reports links,
+// so source==='revit_plugin' is the authoritative signal. Agent rows (window-
+// title based) are NOT trusted for the project list, since the agent cannot
+// tell a host model from a linked one.
+//
+// metricsBySource: map of file_name -> source, built from project_metrics.
+export function isOpenedModel(file, metricsBySource) {
+  return metricsBySource && metricsBySource[file] === "revit_plugin";
 }
 
 export function allFilesSeen(fileMap, people, metrics) {
   const assigned = {};
   (fileMap || []).forEach((f) => { if (f.project_id != null) assigned[f.file_name] = f.project_id; });
+
+  // Build file -> source from metrics.
+  const sourceOf = {};
+  (metrics || []).forEach((m) => { if (m.project) sourceOf[m.project] = m.source || "agent"; });
+
   const seen = new Set();
-  // Only count files that look like real opened host models.
-  (metrics || []).forEach((m) => { if (isLikelyHostModel(m.project)) seen.add(m.project); });
-  (people || []).forEach((p) => { if (isLikelyHostModel(p.project)) seen.add(p.project); });
-  // Files already assigned by a user are always kept (a human vouched for them).
+  // ONLY plugin-reported files count as opened models.
+  (metrics || []).forEach((m) => {
+    if (m.source === "revit_plugin" && m.project && m.project !== "—") seen.add(m.project);
+  });
+  // Files already assigned by a user are always kept (human vouched for them).
   Object.keys(assigned).forEach((f) => seen.add(f));
-  return [...seen].map((file) => ({ file, projectId: assigned[file] ?? null }));
+
+  return [...seen].map((file) => ({ file, projectId: assigned[file] ?? null, source: sourceOf[file] || "manual" }));
 }
 
 // Files not yet assigned to any folder.
