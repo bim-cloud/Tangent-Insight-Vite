@@ -23,7 +23,7 @@ export function RevitScreen({ data }) {
   // Monitoring shows project FOLDERS that have models assigned (or activity).
   const monFolders = folders.filter((f) => f.files.length > 0 || f.users.length > 0)
     .sort((a, b) => (b.activeUsers - a.activeUsers) || (b.totalHours - a.totalHours));
-  const unassignedHere = filesSeen.filter((x) => x.projectId == null);
+  const unassignedHere = filesSeen.filter((x) => x.projectId == null && !x.ignored);
   const selFolder = folders.find((x) => x.id === sel);
 
   // Resolve a file to its assigned project label (or the file name if unassigned).
