@@ -242,15 +242,15 @@ export function LiveScreen({ data }) {
         <CardTitle title="Who's working now" subtitle={online.length + " active"} icon="Users"
           right={<button className="btn btn-secondary btn-sm" onClick={() => exportCsv("live-users", online.map((p) => ({ name: p.name, status: p.status, project: labelFor(p.project), hours: p.hours })))}><Icon name="Download" size={12} /> Export</button>} />
         {online.length === 0 ? <Empty>No one is online right now. Presence comes from the desktop agent — if this is empty, the agent isn't reporting status.</Empty> : (
-          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px,1fr))" }}>
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px,1fr))" }}>
             {online.map((p) => (
-              <motion.div key={p.id} variants={riseItem} className="row gap-3" style={{ padding: 10, borderRadius: 12, background: "rgb(var(--bg-sunken))" }}>
+              <motion.div key={p.id} variants={riseItem} className="row gap-3" style={{ padding: 12, borderRadius: 12, background: "rgb(var(--bg-sunken))", alignItems: "flex-start" }}>
                 <Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={38} />
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="truncate" style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
-                  <div className="truncate muted" style={{ fontSize: 11 }}>{p.project !== "—" ? labelFor(p.project) : p.role}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3, wordBreak: "break-word" }}>{p.name}</div>
+                  <div className="muted" style={{ fontSize: 11, lineHeight: 1.35, wordBreak: "break-word" }}>{p.project !== "—" ? labelFor(p.project) : p.role}</div>
+                  <div style={{ marginTop: 6 }}><Pill tone={richStatus(p).tone} dot>{richStatus(p).label}</Pill></div>
                 </div>
-                <Pill tone={richStatus(p).tone} dot>{richStatus(p).label}</Pill>
               </motion.div>
             ))}
           </div>
