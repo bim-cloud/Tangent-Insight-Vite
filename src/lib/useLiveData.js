@@ -16,7 +16,7 @@ export function useLiveData() {
   const load = useCallback(async () => {
     const today = new Date().toISOString().slice(0, 10);
     try {
-      const [people_r, acts_r, att_r, mach_r, metrics_r, projects_r, files_r, sessions_r, rawsessions_r] = await Promise.allSettled([
+      const [people_r, acts_r, att_r, mach_r, metrics_r, projects_r, files_r, sessions_r, rawsessions_r, teams_r] = await Promise.allSettled([
         rest("people", "order=name"),
         rest("activity_events", "order=occurred_at.desc&limit=200"),
         rest("attendance", "work_date=eq." + today),
@@ -26,6 +26,7 @@ export function useLiveData() {
         rest("project_files", "select=*"),
         rest("v_project_user_time", "select=*"),
         rest("work_sessions", "select=*&order=started_at.desc&limit=500"),
+        rest("activity_events", "kind=eq.teams&order=occurred_at.desc&limit=50"),
       ]);
 
       if (people_r.status !== "fulfilled" || !Array.isArray(people_r.value)) {
@@ -65,6 +66,7 @@ export function useLiveData() {
       const metricRows = metrics_r.status === "fulfilled" && Array.isArray(metrics_r.value) ? metrics_r.value : [];
       const sessionRows = sessions_r.status === "fulfilled" && Array.isArray(sessions_r.value) ? sessions_r.value : [];
       const rawSessions = rawsessions_r.status === "fulfilled" && Array.isArray(rawsessions_r.value) ? rawsessions_r.value : [];
+      const teamsEvents = teams_r.status === "fulfilled" && Array.isArray(teams_r.value) ? teams_r.value.map(mapEvent) : [];
       const folders = buildProjectFolders(projectRows, fileRows, people, metricRows, sessionRows);
       const unassigned = unassignedFiles(fileRows, people, metricRows);
       const filesSeen = allFilesSeen(fileRows, people, metricRows);
@@ -76,7 +78,7 @@ export function useLiveData() {
         fleet: { total: mach.length, online, offline: mach.length - online },
         machines: mach,
         folders, unassigned, filesSeen,
-        projectRows, fileRows, sessionRows, rawSessions,
+        projectRows, fileRows, sessionRows, rawSessions, teamsEvents,
       });
       setLive(true);
       setLastSync(new Date());
