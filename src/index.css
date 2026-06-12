@@ -162,3 +162,5 @@ tr:last-child td { border-bottom: none; }
   transform: translateX(-120%); transition: transform 850ms cubic-bezier(0.22,1,0.36,1);
 }
 .surface-hover:hover::after { transform: translateX(120%); }
+
+@keyframes ti-pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.3); } }
