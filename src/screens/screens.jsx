@@ -272,9 +272,12 @@ function Stat({ icon, label, value, grad }) {
 
 // ---------- TEAMS ACTIVITY ----------
 export function TeamsScreen({ data }) {
-  const { people, activity } = data;
+  const { people, activity, teamsEvents: dedicated = [] } = data;
   const inCall = people.filter((p) => p.status === "meeting");
-  const teamsEvents = activity.filter((a) => a.kind === "teams");
+  // Use the dedicated teams-events query (last 50, any age) — the general
+  // activity feed only holds the latest 200 events of ALL kinds, so Teams
+  // events can fall outside it and wrongly display as zero.
+  const teamsEvents = dedicated.length ? dedicated : activity.filter((a) => a.kind === "teams");
   return (
     <motion.div variants={staggerGrid} initial="initial" animate="animate">
       <motion.div className="surface" style={card} variants={riseItem}>
