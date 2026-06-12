@@ -181,6 +181,7 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
   people.forEach((p) => { peopleById[p.id] = p; });
   const [openFolder, setOpenFolder] = useState(null);
   const [assigning, setAssigning] = useState(null);   // { file } being assigned
+  const [reassign, setReassign] = useState(null);     // { file, fromId } being moved
   const [manageOpen, setManageOpen] = useState(false);
   const [q, setQ] = useState("");
   const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
@@ -313,6 +314,14 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
                     <div key={file} className="row gap-2" style={{ padding: "7px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
                       <Icon name="Box" size={13} color="rgb(var(--accent))" />
                       <span className="mono truncate" style={{ fontSize: 11, flex: 1 }}>{file}</span>
+                      <button className="btn btn-ghost btn-icon" title="Move to another project"
+                        onClick={() => setReassign({ file, fromId: folder.id })}>
+                        <Icon name="FolderInput" size={12} />
+                      </button>
+                      <button className="btn btn-ghost btn-icon" title="Remove from this project"
+                        onClick={async () => { await assignFileToProject(file, null); refresh?.(); }}>
+                        <Icon name="X" size={12} color="rgb(var(--danger))" />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -356,6 +365,15 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
         {assigning && (
           <Modal onClose={() => setAssigning(null)} title="Assign to project" subtitle={assigning.file}>
             <AssignList file={assigning.file} projects={projectRows} onDone={() => { setAssigning(null); refresh?.(); }} />
+          </Modal>
+        )}
+      </AnimatePresence>
+
+      {/* Reassign (move) file modal */}
+      <AnimatePresence>
+        {reassign && (
+          <Modal onClose={() => setReassign(null)} title="Move to another project" subtitle={reassign.file}>
+            <AssignList file={reassign.file} projects={projectRows} onDone={() => { setReassign(null); setOpenFolder(null); refresh?.(); }} />
           </Modal>
         )}
       </AnimatePresence>
