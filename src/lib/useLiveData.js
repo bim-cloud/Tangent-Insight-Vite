@@ -36,7 +36,17 @@ export function useLiveData() {
       const acts = (acts_r.status === "fulfilled" ? acts_r.value : []).map(mapEvent);
       const att = att_r.status === "fulfilled" ? att_r.value : [];
       const attById = {};
-      att.forEach((a) => { attById[a.id] = a; });
+      att.forEach((a) => { attById[a.person_id || a.id] = a; });
+      // Merge today's attendance clock times into each person so the
+      // Attendance tab and drawer show real First-in / Last-out.
+      people.forEach((p) => {
+        const at = attById[p.id];
+        if (at) {
+          if (!p.loginTime && at.in_time) p.loginTime = at.in_time;     // "HH:MM"
+          if (!p.logoutTime && at.out_time) p.logoutTime = at.out_time; // "HH:MM"
+        }
+      });
+
       const attendance = people.map((p) => ({
         ...p,
         inTime: attById[p.id]?.in_time || "—",
