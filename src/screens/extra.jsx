@@ -4,7 +4,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from "recharts";
 import { Icon, CardTitle, Avatar, Pill } from "../components/primitives.jsx";
 import { spring, staggerGrid, riseItem } from "../motion/variants.js";
 import { exportAttendanceXlsx, exportReportXlsx } from "../lib/excel.js";
-import { exportCsv } from "../lib/util.js";
+import { exportCsv, toast } from "../lib/util.js";
 import { auth } from "../lib/auth.js";
 import { SUPABASE_URL, SUPABASE_ANON, normalizeFileName } from "../lib/data.js";
 
@@ -20,12 +20,27 @@ const timeAgo = (iso) => {
 };
 
 // ---------- Per-employee detail drawer ----------
-export function EmployeeDrawer({ person, activity, onClose }) {
+export function EmployeeDrawer({ person, activity, sessions = [], onClose }) {
   if (!person) return null;
   const p = person;
   const userEvents = (activity || []).filter((a) => a.user === p.id).slice(0, 40);
   const totalPc = p.focusMin + p.idleMin;
   const productivePct = totalPc ? Math.round((p.focusMin / totalPc) * 100) : 0;
+
+  // Project-wise hours for this user (sum session durations per file).
+  const norm = (s) => (s ? String(s).trim().replace(/\.(rvt|rfa|rte)$/i, "") : "");
+  const byProject = {};
+  (sessions || []).filter((s) => s.person_id === p.id).forEach((s) => {
+    const key = norm(s.project);
+    if (!byProject[key]) byProject[key] = { file: key, min: 0, sessions: 0, last: null };
+    byProject[key].min += Math.round((s.duration_seconds || 0) / 60);
+    byProject[key].sessions += 1;
+    const end = s.ended_at || s.last_heartbeat;
+    if (end && (!byProject[key].last || end > byProject[key].last)) byProject[key].last = end;
+  });
+  const projectList = Object.values(byProject).sort((a, b) => b.min - a.min);
+  const userSessions = (sessions || []).filter((s) => s.person_id === p.id)
+    .sort((a, b) => (b.started_at || "").localeCompare(a.started_at || "")).slice(0, 20);
 
   // Build a simple hour-bucketed timeline from this user's events
   const buckets = Array.from({ length: 12 }, (_, i) => ({ h: i + 8, count: 0 }));
@@ -76,6 +91,48 @@ export function EmployeeDrawer({ person, activity, onClose }) {
               {!p.loginTime && <div className="muted" style={{ fontSize: 10.5, marginTop: 6 }}>Login/logout times appear once the desktop agent reports session boundaries.</div>}
             </div>
 
+            {/* project-wise working hours */}
+            <div className="surface-solid" style={{ ...card, marginBottom: 16 }}>
+              <div className="micro" style={{ marginBottom: 8 }}>Project-wise working hours</div>
+              {projectList.length === 0 ? (
+                <div className="muted" style={{ fontSize: 11.5 }}>No project time recorded yet. Time appears as the user works in Revit models (plugin sessions).</div>
+              ) : (
+                <div className="col gap-2">
+                  {projectList.map((pr) => (
+                    <div key={pr.file} className="between" style={{ padding: "6px 9px", borderRadius: 8, background: "rgb(var(--bg-sunken))" }}>
+                      <div className="row gap-2" style={{ minWidth: 0 }}>
+                        <Icon name="Box" size={12} color="rgb(var(--accent))" />
+                        <span className="mono truncate" style={{ fontSize: 10.5 }}>{pr.file}</span>
+                      </div>
+                      <span className="tabular" style={{ fontSize: 11.5, fontWeight: 600, color: "rgb(var(--accent))", flex: "none" }}>{fmtHM(pr.min)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* session history with timestamps */}
+            {userSessions.length > 0 && (
+              <div className="surface-solid" style={{ ...card, marginBottom: 16 }}>
+                <div className="micro" style={{ marginBottom: 8 }}>Session history · timestamps</div>
+                <div className="col gap-1" style={{ maxHeight: 200, overflowY: "auto" }}>
+                  {userSessions.map((s) => {
+                    const fmtT = (iso) => iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+                    const mins = Math.round((s.duration_seconds || 0) / 60);
+                    return (
+                      <div key={s.id} className="between" style={{ padding: "6px 9px", borderRadius: 7, background: "rgb(var(--bg-sunken))" }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div className="mono truncate" style={{ fontSize: 10, marginBottom: 1 }}>{norm(s.project)}</div>
+                          <div className="muted" style={{ fontSize: 9.5 }}>{fmtT(s.started_at)} → {s.ended_at ? fmtT(s.ended_at) : "now"}</div>
+                        </div>
+                        <span className="tabular" style={{ fontSize: 11, fontWeight: 600, color: "rgb(var(--accent))", flex: "none" }}>{fmtHM(mins)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* daily activity timeline */}
             <div className="surface-solid" style={{ ...card, marginBottom: 16 }}>
               <div className="micro" style={{ marginBottom: 8 }}>Activity through the day</div>
@@ -120,43 +177,57 @@ function DTile({ label, value, tone }) {
 }
 
 // ---------- Attendance screen ----------
-export function AttendanceScreen({ data }) {
-  const { people } = data;
+export function AttendanceScreen({ data, onPickUser }) {
+  const { people, rawSessions = [] } = data;
   const present = people.filter((p) => p.status !== "offline");
+
+  // Per-user project work time (sum of session durations today).
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const projMinByUser = {};
+  (rawSessions || []).forEach((s) => {
+    if (!s.started_at || !s.started_at.startsWith(todayStr)) return;
+    projMinByUser[s.person_id] = (projMinByUser[s.person_id] || 0) + Math.round((s.duration_seconds || 0) / 60);
+  });
+
   return (
     <motion.div variants={staggerGrid} initial="initial" animate="animate">
       <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))" }} variants={staggerGrid}>
         <ATile icon="UserCheck" label="Present" value={present.length} grad="var(--grad-emerald)" />
         <ATile icon="UserX" label="Offline" value={people.length - present.length} grad="var(--grad-navy)" />
-        <ATile icon="Clock" label="Total hours" value={people.reduce((a, p) => a + p.hours, 0).toFixed(0) + "h"} grad="var(--grad-cyan)" />
-        <ATile icon="Timer" label="Overtime" value={people.reduce((a, p) => a + p.ot, 0).toFixed(1) + "h"} grad="var(--grad-amber)" />
+        <ATile icon="Clock" label="Screen time" value={fmtHM(people.reduce((a, p) => a + p.focusMin, 0))} grad="var(--grad-cyan)" />
+        <ATile icon="Box" label="Project time" value={fmtHM(Object.values(projMinByUser).reduce((a, b) => a + b, 0))} grad="var(--grad-violet)" />
+        <ATile icon="Moon" label="Idle time" value={fmtHM(people.reduce((a, p) => a + p.idleMin, 0))} grad="var(--grad-amber)" />
       </motion.div>
       <motion.div className="surface" style={{ ...card, marginTop: 16, padding: 0, overflow: "hidden" }} variants={riseItem}>
         <div className="between" style={{ padding: "14px 16px" }}>
-          <CardTitle title="Daily attendance" subtitle="Today · activity-based" icon="CalendarCheck" />
+          <CardTitle title="Daily attendance" subtitle="Today · click a row for full history" icon="CalendarCheck" />
           <button className="btn btn-primary btn-sm" onClick={() => exportAttendanceXlsx(people, { rangeLabel: "Today" })}><Icon name="FileSpreadsheet" size={12} /> Export Excel</button>
         </div>
         <table>
-          <thead><tr><th>Employee</th><th>Status</th><th>Login</th><th>Logout</th><th>Active</th><th>Idle</th><th>Working</th><th>Overtime</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Status</th><th>First in</th><th>Last out</th><th>Screen</th><th>Project</th><th>Idle</th><th>Total</th></tr></thead>
           <tbody>
-            {people.map((p) => (
-              <tr key={p.id}>
-                <td><div className="row gap-2"><Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={26} /><span style={{ fontWeight: 600 }}>{p.name}</span></div></td>
-                <td><Pill tone={p.status === "offline" ? "neutral" : "success"} dot>{p.status === "offline" ? "absent" : "present"}</Pill></td>
-                <td className="muted tabular" style={{ fontSize: 11 }}>{p.loginTime ? new Date(p.loginTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                <td className="muted tabular" style={{ fontSize: 11 }}>{p.logoutTime ? new Date(p.logoutTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                <td className="tabular" style={{ color: "rgb(var(--success))" }}>{fmtHM(p.focusMin)}</td>
-                <td className="tabular muted">{fmtHM(p.idleMin)}</td>
-                <td className="tabular">{p.hours.toFixed(1)}h</td>
-                <td className="tabular" style={{ color: p.ot > 0.5 ? "rgb(var(--warning))" : "rgb(var(--fg-muted))" }}>{p.ot.toFixed(1)}h</td>
-              </tr>
-            ))}
+            {people.map((p) => {
+              const projMin = projMinByUser[p.id] || 0;
+              const totalMin = p.focusMin + p.idleMin;
+              return (
+                <tr key={p.id} className="click" onClick={() => onPickUser?.(p)} style={{ cursor: "pointer" }}>
+                  <td><div className="row gap-2"><Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={26} /><span style={{ fontWeight: 600 }}>{p.name}</span></div></td>
+                  <td><Pill tone={p.status === "offline" ? "neutral" : "success"} dot>{p.status === "offline" ? "absent" : "present"}</Pill></td>
+                  <td className="muted tabular" style={{ fontSize: 11 }}>{p.loginTime ? new Date(p.loginTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  <td className="muted tabular" style={{ fontSize: 11 }}>{p.logoutTime ? new Date(p.logoutTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  <td className="tabular" style={{ color: "rgb(var(--success))" }}>{fmtHM(p.focusMin)}</td>
+                  <td className="tabular" style={{ color: "rgb(var(--accent))" }}>{fmtHM(projMin)}</td>
+                  <td className="tabular muted">{fmtHM(p.idleMin)}</td>
+                  <td className="tabular" style={{ fontWeight: 600 }}>{fmtHM(totalMin)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </motion.div>
       <div className="surface" style={{ ...card, marginTop: 14 }}>
         <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-          Active and idle time come from the desktop agent's input tracking. Login/logout reflect the first and last agent sample of the day — these populate once the agent reports session boundaries (a small agent addition).
+          <b>Screen time</b> = active input time (agent). <b>Project time</b> = time in Revit models (plugin sessions). <b>Idle</b> = inactive periods. First-in/last-out come from the day's first and last agent samples. Click any user for their full login/logout history, session timeline, and project-wise hours.
         </div>
       </div>
     </motion.div>
@@ -319,7 +390,7 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
                         <Icon name="FolderInput" size={12} />
                       </button>
                       <button className="btn btn-ghost btn-icon" title="Remove from this project"
-                        onClick={async () => { await assignFileToProject(file, null); refresh?.(); }}>
+                        onClick={async () => { const r = await removeFileFromProject(file); if (r.error) toast(r.error, "danger"); else { toast("Removed from project", "success"); refresh?.(); } }}>
                         <Icon name="X" size={12} color="rgb(var(--danger))" />
                       </button>
                     </div>
@@ -510,15 +581,47 @@ async function assignFileToProject(file, projectId) {
   try {
     const token = await auth.getValidToken();
     if (!token) return { error: "Sign in again to change assignments." };
-    const r = await fetch(SUPABASE_URL + "/rest/v1/project_files", {
+    const headers = { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token };
+
+    // Try to UPDATE an existing row first (handles move + remove reliably).
+    const patch = await fetch(SUPABASE_URL + "/rest/v1/project_files?file_name=eq." + encodeURIComponent(norm), {
+      method: "PATCH",
+      headers: { ...headers, Prefer: "return=representation" },
+      body: JSON.stringify({ project_id: projectId, assigned_at: new Date().toISOString() }),
+    });
+    if (patch.ok) {
+      const rows = await patch.json().catch(() => []);
+      if (Array.isArray(rows) && rows.length > 0) return {};   // updated existing row
+    }
+
+    // No existing row → INSERT a new assignment.
+    const post = await fetch(SUPABASE_URL + "/rest/v1/project_files", {
       method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token, Prefer: "resolution=merge-duplicates,return=minimal" },
+      headers: { ...headers, Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify({ file_name: norm, project_id: projectId, assigned_at: new Date().toISOString() }),
     });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      if (r.status === 401 || r.status === 403) return { error: "Permission denied — run 0010_projects.sql so authenticated users can assign files." };
-      return { error: j.message || ("HTTP " + r.status) };
+    if (!post.ok) {
+      const j = await post.json().catch(() => ({}));
+      if (post.status === 401 || post.status === 403) return { error: "Permission denied — run 0010_projects.sql so authenticated users can assign files." };
+      return { error: j.message || ("HTTP " + post.status) };
+    }
+    return {};
+  } catch (e) { return { error: e.message }; }
+}
+
+// Remove a file from any project entirely (deletes the assignment row).
+async function removeFileFromProject(file) {
+  const norm = normalizeFileName(file);
+  try {
+    const token = await auth.getValidToken();
+    if (!token) return { error: "Sign in again to change assignments." };
+    const r = await fetch(SUPABASE_URL + "/rest/v1/project_files?file_name=eq." + encodeURIComponent(norm), {
+      method: "DELETE",
+      headers: { apikey: SUPABASE_ANON, Authorization: "Bearer " + token, Prefer: "return=minimal" },
+    });
+    if (!r.ok && r.status !== 404) {
+      if (r.status === 401 || r.status === 403) return { error: "Permission denied — run 0010_projects.sql." };
+      return { error: "HTTP " + r.status };
     }
     return {};
   } catch (e) { return { error: e.message }; }

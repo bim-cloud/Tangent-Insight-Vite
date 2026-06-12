@@ -17,12 +17,50 @@ function Empty({ children }) {
 
 // ---------- PROJECT MONITORING ----------
 export function RevitScreen({ data }) {
-  const { projects, people = [] } = data;
+  const { projects, people = [], filesSeen = [], rawSessions = [] } = data;
   const [sel, setSel] = useState(null);
   const p = projects.find((x) => x.code === sel);
 
+  // Currently-active models: sessions that are still 'active' (live heartbeat),
+  // or files with very recent activity. These are what users are working on NOW.
+  const now = Date.now();
+  const activeSessions = (rawSessions || []).filter((s) => s.status === "active" && s.last_heartbeat && (now - new Date(s.last_heartbeat)) < 15 * 60 * 1000);
+  const activeByFile = {};
+  activeSessions.forEach((s) => {
+    const f = s.project;
+    if (!activeByFile[f]) activeByFile[f] = { file: f, users: [], lastBeat: s.last_heartbeat };
+    const who = people.find((pp) => pp.id === s.person_id);
+    activeByFile[f].users.push(who ? who.name : s.person_id);
+    if (s.last_heartbeat > activeByFile[f].lastBeat) activeByFile[f].lastBeat = s.last_heartbeat;
+  });
+  const liveModels = Object.values(activeByFile);
+
   return (
     <motion.div variants={staggerGrid} initial="initial" animate="animate">
+      {/* Currently Active models banner */}
+      {liveModels.length > 0 && (
+        <motion.div className="surface" variants={riseItem}
+          style={{ ...card, marginBottom: 16, border: "1px solid rgb(var(--success)/0.35)", background: "rgb(var(--success)/0.04)" }}>
+          <div className="row gap-2" style={{ marginBottom: 10 }}>
+            <span className="dot" style={{ background: "rgb(var(--success))", animation: "ti-pulse 1.6s infinite" }} />
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Active now</span>
+            <span className="muted" style={{ fontSize: 11.5 }}>· {liveModels.length} model{liveModels.length > 1 ? "s" : ""} being worked on</span>
+          </div>
+          <div className="col gap-2">
+            {liveModels.map((m) => (
+              <div key={m.file} className="between" style={{ padding: "9px 12px", borderRadius: 10, background: "rgb(var(--bg-sunken))" }}>
+                <div className="row gap-2" style={{ minWidth: 0 }}>
+                  <Icon name="Box" size={14} color="rgb(var(--success))" />
+                  <span className="mono truncate" style={{ fontSize: 11.5, fontWeight: 600 }}>{m.file}</span>
+                  <Pill tone="success" dot>Active</Pill>
+                </div>
+                <span className="muted truncate" style={{ fontSize: 11, flex: "none", maxWidth: 200 }}>{[...new Set(m.users)].join(", ")}</span>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
       <div className="between" style={{ marginBottom: 14 }}>
         <div className="muted" style={{ fontSize: 12.5 }}>{projects.length} central models tracked from the Revit plugin</div>
         <button className="btn btn-secondary btn-sm" onClick={() => exportProjectsXlsx(projects, data.people)}><Icon name="FileSpreadsheet" size={12} /> Export Excel</button>
