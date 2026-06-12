@@ -6,7 +6,7 @@ import { spring, staggerGrid, riseItem } from "../motion/variants.js";
 import { exportAttendanceXlsx, exportReportXlsx } from "../lib/excel.js";
 import { exportCsv, toast } from "../lib/util.js";
 import { auth } from "../lib/auth.js";
-import { SUPABASE_URL, SUPABASE_ANON, normalizeFileName } from "../lib/data.js";
+import { SUPABASE_URL, SUPABASE_ANON, normalizeFileName, modelStatsForFiles } from "../lib/data.js";
 
 const card = { padding: "var(--pad-card)" };
 const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
@@ -381,18 +381,28 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
               </div>
               {folder.files.length === 0 ? <div className="muted" style={{ fontSize: 12, marginBottom: 18 }}>No Revit models assigned yet. Use “Add model” to assign files to this project.</div> : (
                 <div className="col gap-2" style={{ marginBottom: 18 }}>
-                  {folder.files.map((file) => (
-                    <div key={file} className="row gap-2" style={{ padding: "7px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
-                      <Icon name="Box" size={13} color="rgb(var(--accent))" />
-                      <span className="mono truncate" style={{ fontSize: 11, flex: 1 }}>{file}</span>
-                      <button className="btn btn-ghost btn-icon" title="Move to another project"
-                        onClick={() => setReassign({ file, fromId: folder.id })}>
-                        <Icon name="FolderInput" size={12} />
-                      </button>
-                      <button className="btn btn-ghost btn-icon" title="Remove from this project"
-                        onClick={async () => { const r = await removeFileFromProject(file); if (r.error) toast(r.error, "danger"); else { toast("Removed from project", "success"); refresh?.(); } }}>
-                        <Icon name="X" size={12} color="rgb(var(--danger))" />
-                      </button>
+                  {modelStatsForFiles(folder.files, allSessions, people).map((m) => (
+                    <div key={m.file} style={{ padding: "9px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
+                      <div className="row gap-2">
+                        <Icon name="Box" size={13} color={m.activeNow ? "rgb(var(--success))" : "rgb(var(--accent))"} />
+                        <span className="mono truncate" style={{ fontSize: 11, flex: 1, fontWeight: 600 }}>{m.file}</span>
+                        {m.activeNow && <Pill tone="success" dot>active</Pill>}
+                        <span className="tabular" style={{ fontSize: 12, fontWeight: 700, color: "rgb(var(--accent))" }}>{fmtHM(m.totalMin)}</span>
+                        <button className="btn btn-ghost btn-icon" title="Move to another project"
+                          onClick={() => setReassign({ file: m.file, fromId: folder.id })}>
+                          <Icon name="FolderInput" size={12} />
+                        </button>
+                        <button className="btn btn-ghost btn-icon" title="Remove from this project (moves back to Unassigned)"
+                          onClick={async () => { const r = await removeFileFromProject(m.file); if (r.error) toast(r.error, "danger"); else { toast("Moved back to Unassigned", "success"); refresh?.(); } }}>
+                          <Icon name="X" size={12} color="rgb(var(--danger))" />
+                        </button>
+                      </div>
+                      <div className="between" style={{ marginTop: 5, paddingLeft: 21 }}>
+                        <span className="muted truncate" style={{ fontSize: 10 }}>
+                          {m.users.length === 0 ? "no recorded users yet" : m.users.map((u) => u.name + " " + fmtHM(u.min)).join(" · ")}
+                        </span>
+                        <span className="muted" style={{ fontSize: 10, flex: "none" }}>{m.lastActive ? "last " + timeAgo(m.lastActive) : ""}</span>
+                      </div>
                     </div>
                   ))}
                 </div>

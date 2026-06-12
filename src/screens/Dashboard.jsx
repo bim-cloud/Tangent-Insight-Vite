@@ -4,6 +4,7 @@ import KPICard from "../components/KPICard.jsx";
 import { Icon, CardTitle, Avatar, Pill } from "../components/primitives.jsx";
 import { staggerGrid, riseItem, spring } from "../motion/variants.js";
 import { exportCsv } from "../lib/util.js";
+import { dedupeActivity } from "../lib/data.js";
 
 const STATUS_COLORS = { online: "#10b981", meeting: "#a78bfa", idle: "#f59e0b", offline: "#475569" };
 
@@ -22,7 +23,8 @@ function DeptTooltip({ active, payload, label }) {
 }
 
 export default function Dashboard({ data, setRoute }) {
-  const { people, kpis, activity, heatmap } = data;
+  const { people, kpis, activity: rawActivity, heatmap, fileRows = [], projectRows = [] } = data;
+  const activity = dedupeActivity(rawActivity, fileRows, projectRows);
 
   // Workforce by department (real)
   const byDept = {};
@@ -116,7 +118,7 @@ export default function Dashboard({ data, setRoute }) {
                   <span className="dot" style={{ background: "rgb(var(--accent))", flex: "none" }} />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div className="truncate" style={{ fontSize: 12 }}>
-                      <b>{u ? u.name : "System"}</b> <span className="muted">{a.detail}</span>
+                      <b>{u ? u.name : "System"}</b> <span className="muted">{a.detail}</span>{a.projectId && <span className="muted"> · {a.projectLabel}</span>}
                     </div>
                   </div>
                   <span className="muted tabular" style={{ fontSize: 10.5, flex: "none" }}>{a.t < 1 ? "now" : a.t + "m"}</span>

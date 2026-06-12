@@ -101,6 +101,31 @@ export function dedupeActivity(activity, fileMap, projects) {
   return out;
 }
 
+// Per-model statistics for a folder's files, computed from raw work_sessions.
+// Returns one row per file: total accumulated time, per-user time, session
+// count, last activity, and whether someone is in it right now.
+export function modelStatsForFiles(files, sessions, people) {
+  const peopleById = {};
+  (people || []).forEach((p) => { peopleById[p.id] = p; });
+  const byFile = {};
+  (files || []).forEach((f) => { byFile[normalizeFileName(f)] = { file: normalizeFileName(f), totalMin: 0, sessionCount: 0, lastActive: null, activeNow: false, users: {} }; });
+  const now = Date.now();
+  (sessions || []).forEach((s) => {
+    const key = normalizeFileName(s.project);
+    const row = byFile[key];
+    if (!row) return;
+    const mins = Math.round((s.duration_seconds || 0) / 60);
+    row.totalMin += mins;
+    row.sessionCount += 1;
+    const end = s.ended_at || s.last_heartbeat;
+    if (end && (!row.lastActive || end > row.lastActive)) row.lastActive = end;
+    if (s.status === "active" && s.last_heartbeat && (now - new Date(s.last_heartbeat)) < 15 * 60 * 1000) row.activeNow = true;
+    const u = row.users[s.person_id] || (row.users[s.person_id] = { id: s.person_id, name: peopleById[s.person_id]?.name || s.person_id, min: 0 });
+    u.min += mins;
+  });
+  return Object.values(byFile).map((r) => ({ ...r, users: Object.values(r.users).sort((a, b) => b.min - a.min) }));
+}
+
 export function deriveProjects(people) {
   const byCentral = {};
   people.forEach((p) => {

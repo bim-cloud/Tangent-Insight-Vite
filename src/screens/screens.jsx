@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, PieChart, Pie, Cell } from "recharts";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pie, Cell } from "recharts";
 import { Icon, CardTitle, Avatar, Pill } from "../components/primitives.jsx";
 import { staggerGrid, riseItem, spring } from "../motion/variants.js";
 import { exportCsv, copyText } from "../lib/util.js";
 import { exportAttendanceXlsx, exportProjectsXlsx, exportReportXlsx } from "../lib/excel.js";
 import { auth } from "../lib/auth.js";
-import { rest, SUPABASE_URL, SUPABASE_ANON, projectLabelForFile, dedupeActivity } from "../lib/data.js";
+import { rest, SUPABASE_URL, SUPABASE_ANON, projectLabelForFile, dedupeActivity, modelStatsForFiles } from "../lib/data.js";
 
 const card = { padding: "var(--pad-card)" };
 const STATUS_COLORS = { online: "#10b981", meeting: "#a78bfa", idle: "#f59e0b", offline: "#475569" };
@@ -17,9 +17,14 @@ function Empty({ children }) {
 
 // ---------- PROJECT MONITORING ----------
 export function RevitScreen({ data }) {
-  const { projects, people = [], filesSeen = [], rawSessions = [], fileRows = [], projectRows = [] } = data;
+  const { projects, people = [], filesSeen = [], rawSessions = [], fileRows = [], projectRows = [], folders = [], unassigned = [] } = data;
   const [sel, setSel] = useState(null);
-  const p = projects.find((x) => x.code === sel);
+  const fmtHM2 = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
+  // Monitoring shows project FOLDERS that have models assigned (or activity).
+  const monFolders = folders.filter((f) => f.files.length > 0 || f.users.length > 0)
+    .sort((a, b) => (b.activeUsers - a.activeUsers) || (b.totalHours - a.totalHours));
+  const unassignedHere = filesSeen.filter((x) => x.projectId == null);
+  const selFolder = folders.find((x) => x.id === sel);
 
   // Resolve a file to its assigned project label (or the file name if unassigned).
   const labelFor = (file) => projectLabelForFile(file, fileRows, projectRows).label;
@@ -64,60 +69,99 @@ export function RevitScreen({ data }) {
       )}
 
       <div className="between" style={{ marginBottom: 14 }}>
-        <div className="muted" style={{ fontSize: 12.5 }}>{projects.length} central models tracked from the Revit plugin</div>
+        <div className="muted" style={{ fontSize: 12.5 }}>{monFolders.length} project folder{monFolders.length === 1 ? "" : "s"} · {unassignedHere.length} unassigned model{unassignedHere.length === 1 ? "" : "s"}</div>
         <button className="btn btn-secondary btn-sm" onClick={() => exportProjectsXlsx(projects, data.people)}><Icon name="FileSpreadsheet" size={12} /> Export Excel</button>
       </div>
-      {projects.length === 0 ? (
-        <div className="surface" style={card}><Empty>No projects yet. They appear once an agent or the Revit plugin observes a central model open.</Empty></div>
+
+      {/* Project FOLDER cards — monitoring is project-based, not file-based */}
+      {monFolders.length === 0 ? (
+        <div className="surface" style={card}><Empty>No active project folders yet. Assign Revit models to projects in the Projects tab; their activity rolls up here.</Empty></div>
       ) : (
-        <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }} variants={staggerGrid}>
-          {projects.map((pr) => (
-            <motion.button key={pr.code} variants={riseItem} onClick={() => setSel(pr.code)}
+        <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))" }} variants={staggerGrid}>
+          {monFolders.map((f) => (
+            <motion.button key={f.id} variants={riseItem} onClick={() => setSel(f.id)}
               whileHover={{ y: -4, transition: spring.snappy }} whileTap={{ scale: 0.98 }}
               className="surface surface-hover" style={{ ...card, textAlign: "left" }}>
-              <div className="between" style={{ marginBottom: 10 }}>
-                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{pr.code}</div>
-                <Pill tone={pr.activeUsers > 0 ? "success" : "neutral"} dot>{pr.activeUsers > 0 ? "active" : "idle"}</Pill>
+              <div className="between" style={{ marginBottom: 8 }}>
+                <div className="row gap-2"><Icon name="Folder" size={14} color="rgb(var(--accent))" /><span className="mono" style={{ fontSize: 11, color: "rgb(var(--fg-muted))" }}>{f.code}</span></div>
+                <Pill tone={f.activeUsers > 0 ? "success" : "neutral"} dot>{f.activeUsers > 0 ? "active" : "idle"}</Pill>
               </div>
-              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <Metric label="Worksets" value={pr.worksets} />
-                <Metric label="Open views" value={pr.openViews} />
-                <Metric label="Warnings" value={pr.warnings} tone={pr.warnings > 0 ? "warning" : undefined} />
-                <Metric label="Linked" value={pr.linkedModels} />
-                <Metric label="Size" value={pr.modelSize ? pr.modelSize + " MB" : "—"} />
-                <Metric label="Users" value={pr.activeUsers + "/" + pr.totalUsers} />
+              <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.35, marginBottom: 10, minHeight: 34 }}>{f.name}</div>
+              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <Metric label="Hours" value={f.totalHours.toFixed(1) + "h"} />
+                <Metric label="Working" value={f.activeUsers + "/" + f.users.length} />
+                <Metric label="Models" value={f.files.length} />
               </div>
+              {f.lastActivity && <div className="muted" style={{ fontSize: 10, marginTop: 8 }}>Last activity {new Date(f.lastActivity).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>}
             </motion.button>
           ))}
         </motion.div>
       )}
+
+      {/* Unassigned models (plugin-confirmed but not in a folder yet) */}
+      {unassignedHere.length > 0 && (
+        <div className="surface" style={{ ...card, marginTop: 16 }}>
+          <div className="micro" style={{ marginBottom: 8 }}>Unassigned Revit models — assign them in the Projects tab</div>
+          <div className="col gap-1">
+            {unassignedHere.slice(0, 8).map((u) => (
+              <div key={u.file} className="row gap-2" style={{ padding: "6px 9px", borderRadius: 8, background: "rgb(var(--bg-sunken))" }}>
+                <Icon name="Box" size={12} color="rgb(var(--warning))" />
+                <span className="mono truncate" style={{ fontSize: 10.5 }}>{u.file}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Folder detail: models + per-model users/time + project stats */}
       <AnimatePresence>
-        {p && (
+        {selFolder && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setSel(null)}
             style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", justifyContent: "flex-end" }}>
-            <motion.div initial={{ x: 420 }} animate={{ x: 0 }} exit={{ x: 420 }} transition={spring.soft}
+            <motion.div initial={{ x: 470 }} animate={{ x: 0 }} exit={{ x: 470 }} transition={spring.soft}
               onClick={(e) => e.stopPropagation()}
-              style={{ width: 420, maxWidth: "90vw", height: "100%", background: "rgb(var(--bg-elev))", padding: 24, overflowY: "auto" }}>
-              <div className="between" style={{ marginBottom: 18 }}>
-                <div className="mono" style={{ fontSize: 16, fontWeight: 700 }}>{p.code}</div>
+              style={{ width: 470, maxWidth: "92vw", height: "100%", background: "rgb(var(--bg-elev))", padding: 24, overflowY: "auto" }}>
+              <div className="between" style={{ marginBottom: 6 }}>
+                <div className="row gap-2"><Icon name="Folder" size={16} color="rgb(var(--accent))" /><span className="mono muted" style={{ fontSize: 12 }}>{selFolder.code}</span></div>
                 <button className="btn btn-ghost btn-icon" onClick={() => setSel(null)}><Icon name="X" size={16} /></button>
               </div>
-              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <Metric label="Worksets" value={p.worksets} big />
-                <Metric label="Open views" value={p.openViews} big />
-                <Metric label="Warnings" value={p.warnings} tone={p.warnings > 0 ? "warning" : undefined} big />
-                <Metric label="Linked models" value={p.linkedModels} big />
-                <Metric label="Model size" value={p.modelSize ? p.modelSize + " MB" : "—"} big />
-                <Metric label="Revit" value={p.version} big />
+              <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 14, lineHeight: 1.3 }}>{selFolder.name}</div>
+              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+                <Metric label="Total time" value={fmtHM2(selFolder.totalFocusMin)} big />
+                <Metric label="Working now" value={selFolder.activeUsers} big />
+                <Metric label="Users" value={selFolder.users.length} big />
+                <Metric label="Models" value={selFolder.files.length} big />
+                <Metric label="Worksets" value={selFolder.worksets} big />
+                <Metric label="Warnings" value={selFolder.warnings} tone={selFolder.warnings > 0 ? "warning" : undefined} big />
               </div>
-              {p.lastUser && <div className="muted" style={{ fontSize: 11.5, marginTop: 16 }}>Last reported by {p.lastUser}{p.updatedAt ? " · " + new Date(p.updatedAt).toLocaleString("en-GB") : ""}</div>}
 
-              {/* Per-user working time on this central file (#4) */}
-              <UsersOnFile fileCode={p.code} people={people} />
-
-              <div className="muted" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.6 }}>
-                Metrics come from the Tangent Insight Revit plugin (worksets, open views, warnings, linked models, file size). Hard clashes aren't shown — that data lives in Navisworks, not the Revit API.
+              <div className="micro" style={{ marginBottom: 8 }}>Models · time & users per model</div>
+              <div className="col gap-2" style={{ marginBottom: 16 }}>
+                {modelStatsForFiles(selFolder.files, rawSessions, people).map((m) => (
+                  <div key={m.file} style={{ padding: "9px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
+                    <div className="row gap-2">
+                      <Icon name="Box" size={13} color={m.activeNow ? "rgb(var(--success))" : "rgb(var(--accent))"} />
+                      <span className="mono truncate" style={{ fontSize: 11, flex: 1, fontWeight: 600 }}>{m.file}</span>
+                      {m.activeNow && <Pill tone="success" dot>active</Pill>}
+                      <span className="tabular" style={{ fontSize: 12, fontWeight: 700, color: "rgb(var(--accent))" }}>{fmtHM2(m.totalMin)}</span>
+                    </div>
+                    {m.users.length > 0 && (
+                      <div style={{ marginTop: 5, paddingLeft: 21 }}>
+                        {m.users.map((u) => (
+                          <div key={u.id} className="between" style={{ fontSize: 10.5, padding: "2px 0" }}>
+                            <span className="muted truncate">{u.name}</span>
+                            <span className="tabular" style={{ color: "rgb(var(--accent-2))" }}>{fmtHM2(u.min)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="muted" style={{ fontSize: 9.5, paddingLeft: 21, marginTop: 3 }}>{m.lastActive ? "last activity " + new Date(m.lastActive).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "no sessions recorded yet"}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="muted" style={{ fontSize: 11, lineHeight: 1.6 }}>
+                Time accumulates from plugin work sessions across all models in this project. Manage model assignment in the Projects tab.
               </div>
             </motion.div>
           </motion.div>
@@ -177,6 +221,15 @@ export function LiveScreen({ data }) {
   // Active sessions = current projects being worked on right now.
   const now = Date.now();
   const activeNow = (rawSessions || []).filter((s) => s.status === "active" && s.last_heartbeat && (now - new Date(s.last_heartbeat)) < 15 * 60 * 1000);
+  const inRevit = new Set(activeNow.map((s) => s.person_id));
+  // Rich status: derive from plugin sessions + agent presence.
+  const richStatus = (p) => {
+    if (inRevit.has(p.id)) return { label: "Active in Revit", tone: "success" };
+    if (p.status === "meeting") return { label: "In Meeting", tone: "info" };
+    if (p.status === "idle") return { label: "Idle", tone: "warning" };
+    if (p.status === "online") return { label: p.project && p.project !== "—" ? "Working on Project" : "Active on PC", tone: "success" };
+    return { label: "Offline", tone: "neutral" };
+  };
   return (
     <motion.div variants={staggerGrid} initial="initial" animate="animate">
       <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px,1fr))" }} variants={staggerGrid}>
@@ -197,7 +250,7 @@ export function LiveScreen({ data }) {
                   <div className="truncate" style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
                   <div className="truncate muted" style={{ fontSize: 11 }}>{p.project !== "—" ? labelFor(p.project) : p.role}</div>
                 </div>
-                <Pill tone={p.status === "meeting" ? "info" : p.status === "idle" ? "warning" : "success"} dot>{p.status}</Pill>
+                <Pill tone={richStatus(p).tone} dot>{richStatus(p).label}</Pill>
               </motion.div>
             ))}
           </div>
@@ -257,7 +310,10 @@ export function TeamsScreen({ data }) {
 
 // ---------- EMPLOYEES ----------
 export function EmployeesScreen({ data, onPickUser }) {
-  const { people } = data;
+  const { people, rawSessions = [] } = data;
+  // Session-derived Revit time per person (real plugin data, independent of agent).
+  const revitMinBy = {};
+  (rawSessions || []).forEach((sx) => { revitMinBy[sx.person_id] = (revitMinBy[sx.person_id] || 0) + Math.round((sx.duration_seconds || 0) / 60); });
   const [q, setQ] = useState("");
   const filtered = people.filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || p.dept.toLowerCase().includes(q.toLowerCase()));
   const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
@@ -278,7 +334,7 @@ export function EmployeesScreen({ data, onPickUser }) {
       </div>
       <div className="surface" style={{ padding: 0, overflow: "hidden" }}>
         <table>
-          <thead><tr><th>Name</th><th>Dept</th><th>Status</th><th>Active</th><th>Idle</th><th>Total PC</th><th>Productive</th><th>Overtime</th><th>Util</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Dept</th><th>Status</th><th>Active</th><th>Idle</th><th>Revit</th><th>Productive</th><th>Overtime</th><th>Util</th><th></th></tr></thead>
           <tbody>
             {filtered.map((p) => {
               const totalPc = p.focusMin + p.idleMin;
@@ -289,7 +345,7 @@ export function EmployeesScreen({ data, onPickUser }) {
                   <td><Pill tone={p.status === "online" ? "success" : p.status === "meeting" ? "info" : p.status === "idle" ? "warning" : "neutral"} dot>{p.status}</Pill></td>
                   <td className="tabular" style={{ color: "rgb(var(--success))" }}>{fmtHM(p.focusMin)}</td>
                   <td className="tabular muted">{fmtHM(p.idleMin)}</td>
-                  <td className="tabular">{fmtHM(totalPc)}</td>
+                  <td className="tabular" style={{ color: "rgb(var(--accent))" }}>{fmtHM(revitMinBy[p.id] || 0)}</td>
                   <td className="tabular">{p.hours.toFixed(1)}h</td>
                   <td className="tabular" style={{ color: p.ot > 0.5 ? "rgb(var(--warning))" : "rgb(var(--fg-muted))" }}>{p.ot.toFixed(1)}h</td>
                   <td><div className="row gap-2"><div style={{ width: 36, height: 5, borderRadius: 3, background: "rgb(var(--bg-sunken))", overflow: "hidden" }}><div style={{ width: p.utilization + "%", height: "100%", background: "var(--grad-cyan)" }} /></div><span className="tabular" style={{ fontSize: 11 }}>{p.utilization}%</span></div></td>
@@ -306,28 +362,96 @@ export function EmployeesScreen({ data, onPickUser }) {
 
 // ---------- WORK ANALYTICS ----------
 export function AnalyticsScreen({ data }) {
-  const { people } = data;
+  const { people, rawSessions = [], fileRows = [], projectRows = [] } = data;
   const sumF = people.reduce((a, p) => a + p.focusMin, 0);
   const sumI = people.reduce((a, p) => a + p.idleMin, 0);
   const focusPct = sumF + sumI ? Math.round((sumF / (sumF + sumI)) * 100) : 0;
+
+  // Revit hours from plugin sessions (real data even before agent reports).
+  const totalRevitH = (rawSessions || []).reduce((a, s) => a + (s.duration_seconds || 0), 0) / 3600;
+
+  // Utilization by discipline: average agent utilization; fall back to session
+  // share when agent data is zero so the chart still reflects reality.
   const byDisc = {};
-  people.forEach((p) => { const k = p.discipline; byDisc[k] = byDisc[k] || { n: 0, util: 0 }; byDisc[k].n++; byDisc[k].util += p.utilization; });
-  const discData = Object.entries(byDisc).map(([name, v]) => ({ name: name[0] + name.slice(1).toLowerCase(), value: Math.round(v.util / v.n) }));
+  people.forEach((p) => { const k = p.discipline || "UNASSIGNED"; byDisc[k] = byDisc[k] || { n: 0, util: 0, revitMin: 0 }; byDisc[k].n++; byDisc[k].util += p.utilization; });
+  (rawSessions || []).forEach((s) => {
+    const who = people.find((p) => p.id === s.person_id);
+    const k = who?.discipline || "UNASSIGNED";
+    byDisc[k] = byDisc[k] || { n: 1, util: 0, revitMin: 0 };
+    byDisc[k].revitMin += Math.round((s.duration_seconds || 0) / 60);
+  });
+  const discData = Object.entries(byDisc).map(([name, v]) => ({
+    name: name[0] + name.slice(1).toLowerCase(),
+    value: Math.round(v.util / Math.max(1, v.n)) || Math.min(100, Math.round(v.revitMin / 4.8)),  // session fallback
+  })).filter((d) => d.name !== "Unassigned" || d.value > 0);
+
+  // 7-day Revit hours trend from sessions.
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d.toISOString().slice(0, 10); });
+  const trend = days.map((d) => ({
+    day: new Date(d).toLocaleDateString("en-GB", { weekday: "short" }),
+    hours: +(((rawSessions || []).filter((s) => (s.started_at || "").startsWith(d)).reduce((a, s) => a + (s.duration_seconds || 0), 0)) / 3600).toFixed(1),
+  }));
+
+  // Project hours (top folders by session time, via assignments).
+  const projMin = {};
+  (rawSessions || []).forEach((s) => {
+    const lbl = projectLabelForFile(s.project, fileRows, projectRows);
+    const key = lbl.projectId ? lbl.label : null;
+    if (!key) return;
+    projMin[key] = (projMin[key] || 0) + Math.round((s.duration_seconds || 0) / 60);
+  });
+  const projData = Object.entries(projMin).map(([name, min]) => ({ name: name.length > 28 ? name.slice(0, 28) + "…" : name, hours: +(min / 60).toFixed(1) }))
+    .sort((a, b) => b.hours - a.hours).slice(0, 8);
+
+  const tooltipStyle = { background: "rgb(var(--bg-elev))", border: "1px solid rgb(var(--hairline))", borderRadius: 10, fontSize: 12, color: "rgb(var(--fg))" };
+  const tick = { fill: "rgb(var(--fg-muted))", fontSize: 11 };
+
   return (
     <motion.div variants={staggerGrid} initial="initial" animate="animate">
       <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))" }} variants={staggerGrid}>
         <Stat icon="TrendingUp" label="Focus share" value={focusPct + "%"} grad="var(--grad-emerald)" />
         <Stat icon="Users" label="Active staff" value={people.filter((p) => p.status !== "offline").length} grad="var(--grad-cyan)" />
-        <Stat icon="Clock" label="Total hours" value={people.reduce((a, p) => a + p.hours, 0).toFixed(0) + "h"} grad="var(--grad-violet)" />
-        <Stat icon="Timer" label="Overtime" value={people.reduce((a, p) => a + p.ot, 0).toFixed(1) + "h"} grad="var(--grad-amber)" />
+        <Stat icon="Box" label="Revit hours (all)" value={totalRevitH.toFixed(1) + "h"} grad="var(--grad-violet)" />
+        <Stat icon="Clock" label="Agent hours" value={people.reduce((a, p) => a + p.hours, 0).toFixed(0) + "h"} grad="var(--grad-amber)" />
       </motion.div>
+
+      <motion.div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 16, gap: 16 }} variants={staggerGrid}>
+        <motion.div className="surface" style={card} variants={riseItem}>
+          <CardTitle title="Utilization by discipline" subtitle="Agent utilization · session fallback" icon="BarChart3" />
+          {discData.length === 0 ? <Empty>No discipline data yet — set Role/Department in Settings.</Empty> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={discData} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <XAxis type="number" hide domain={[0, 100]} />
+                <YAxis type="category" dataKey="name" width={96} tick={tick} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgb(var(--fg)/0.05)" }} formatter={(v) => [v + "%", "Utilization"]} />
+                <Bar dataKey="value" radius={[0, 6, 6, 0]} fill="#1890cc" animationDuration={900} barSize={16} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </motion.div>
+
+        <motion.div className="surface" style={card} variants={riseItem}>
+          <CardTitle title="Revit hours · last 7 days" subtitle="From plugin work sessions" icon="TrendingUp" />
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={trend} margin={{ left: -18, right: 8 }}>
+              <XAxis dataKey="day" tick={tick} axisLine={false} tickLine={false} />
+              <YAxis tick={tick} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgb(var(--fg)/0.05)" }} formatter={(v) => [v + "h", "Hours"]} />
+              <Bar dataKey="hours" radius={[5, 5, 0, 0]} fill="#00b88a" animationDuration={900} />
+            </BarChart>
+          </ResponsiveContainer>
+        </motion.div>
+      </motion.div>
+
       <motion.div className="surface" style={{ ...card, marginTop: 16 }} variants={riseItem}>
-        <CardTitle title="Utilization by discipline" subtitle="Live average" icon="BarChart3" />
-        {discData.length === 0 ? <Empty>No data yet.</Empty> : (
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={discData} layout="vertical">
-              <XAxis type="number" hide /><Tooltip contentStyle={{ background: "rgb(17 21 32)", border: "1px solid rgb(38 44 60)", borderRadius: 10, fontSize: 12 }} />
-              <Bar dataKey="value" radius={[0, 6, 6, 0]} fill="#a78bfa" animationDuration={900} />
+        <CardTitle title="Hours by project" subtitle="Accumulated session time per project folder" icon="FolderKanban" />
+        {projData.length === 0 ? <Empty>No project hours yet — assign Revit models to project folders and time accrues here.</Empty> : (
+          <ResponsiveContainer width="100%" height={Math.max(160, projData.length * 38)}>
+            <BarChart data={projData} layout="vertical" margin={{ left: 8, right: 16 }}>
+              <XAxis type="number" hide />
+              <YAxis type="category" dataKey="name" width={190} tick={tick} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgb(var(--fg)/0.05)" }} formatter={(v) => [v + "h", "Hours"]} />
+              <Bar dataKey="hours" radius={[0, 6, 6, 0]} fill="#1890cc" animationDuration={900} barSize={16} />
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -338,7 +462,7 @@ export function AnalyticsScreen({ data }) {
 
 // ---------- REPORTS ----------
 export function ReportsScreen({ data }) {
-  const { people, projects } = data;
+  const { people, projects, folders = [], rawSessions = [] } = data;
   const [days, setDays] = useState(7);
   const [dept, setDept] = useState("all");
   const [proj, setProj] = useState("all");
@@ -355,8 +479,20 @@ export function ReportsScreen({ data }) {
     if (reportType === "attendance") {
       exportAttendanceXlsx(filteredPeople(), { rangeLabel: rangeLabel() });
     } else if (reportType === "projects") {
-      const ps = proj === "all" ? projects : projects.filter((p) => p.code === proj);
-      exportProjectsXlsx(ps, filteredPeople());
+      // PROJECT-FOLDER based report: one row per project folder with totals.
+      const rows = folders.filter((fo) => fo.files.length > 0 || fo.users.length > 0).map((fo) => ({
+        "Project": fo.label,
+        "Total Hours": +(fo.totalFocusMin / 60).toFixed(2),
+        "Users": fo.users.length,
+        "Working Now": fo.activeUsers,
+        "Models": fo.files.length,
+        "Warnings": fo.warnings,
+        "Last Activity": fo.lastActivity ? new Date(fo.lastActivity).toLocaleString("en-GB") : "—",
+        "Utilization %": fo.users.length ? Math.round(fo.users.reduce((a, u) => a + (u.focusMin > 0 ? 100 : 0), 0) / fo.users.length) : 0,
+      }));
+      exportReportXlsx("project-summary", "Project Summary — by Project Folder",
+        rows.length ? rows : [{ Note: "No project folder activity yet" }],
+        rows.length ? ["Project", "Total Hours", "Users", "Working Now", "Models", "Warnings", "Last Activity", "Utilization %"] : ["Note"]);
     } else {
       exportReportXlsx("tangent-utilization", "Utilization Report",
         filteredPeople().map((p) => ({ Employee: p.name, Department: p.dept, Role: p.role,
@@ -455,7 +591,7 @@ export function AdminScreen({ data, me }) {
   const byId = {};
   machines.forEach((m) => {
     const id = (m.autodesk_user || "").trim();
-    if (!id || !id.includes("@")) return;
+    if (!id) return;   // accept any non-empty Autodesk ID (email OR username)
     byId[id] = byId[id] || { id, users: new Set(), machines: [], online: 0, lastSeen: null };
     if (m.person_id) byId[id].users.add(m.person_id);
     byId[id].machines.push(m);
@@ -541,22 +677,27 @@ export function SettingsScreen({ data, me, refresh }) {
       if (!token) { setStatus({ t: "err", m: "Session expired — sign in again." }); return; }
       const headers = { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token };
 
-      // Does a people row exist for this email? (me may be a fallback with id=email)
+      // Robust save without ON CONFLICT (works even if email has no unique
+      // constraint): look up an existing row by email, then PATCH it; if none
+      // exists, do a plain INSERT.
       const realId = me && me.id && me.id !== email ? me.id : null;
-      const body = { name: me?.name || nameFromEmail(email), email, role, dept, discipline: disc };
+      let targetId = realId;
+      if (!targetId) {
+        const q = await fetch(SUPABASE_URL + "/rest/v1/people?select=id&email=ilike." + encodeURIComponent(email), { headers });
+        const found = q.ok ? await q.json().catch(() => []) : [];
+        if (Array.isArray(found) && found.length > 0) targetId = found[0].id;
+      }
 
       let r;
-      if (realId) {
-        // Update existing row.
-        r = await fetch(SUPABASE_URL + "/rest/v1/people?id=eq." + encodeURIComponent(realId), {
+      if (targetId) {
+        r = await fetch(SUPABASE_URL + "/rest/v1/people?id=eq." + encodeURIComponent(targetId), {
           method: "PATCH", headers: { ...headers, Prefer: "return=minimal" },
           body: JSON.stringify({ role, dept, discipline: disc }),
         });
       } else {
-        // No row yet — upsert by email so the profile is created + saved.
-        r = await fetch(SUPABASE_URL + "/rest/v1/people?on_conflict=email", {
-          method: "POST", headers: { ...headers, Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify(body),
+        r = await fetch(SUPABASE_URL + "/rest/v1/people", {
+          method: "POST", headers: { ...headers, Prefer: "return=minimal" },
+          body: JSON.stringify({ name: me?.name || nameFromEmail(email), email, role, dept, discipline: disc }),
         });
       }
       if (!r.ok) {
