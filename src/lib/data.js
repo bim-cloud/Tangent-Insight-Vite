@@ -176,13 +176,12 @@ export function buildProjectFolders(projects, fileMap, people, metrics, sessions
     return fileToProject[normalizeFileName(file)] ?? null;
   }
 
-  // Valid opened models = plugin-reported OR manually assigned OR a real model
-  // someone is currently working in. All keys NORMALIZED so "X" and "X.rvt"
-  // count as the same model.
+  // Valid opened models = plugin-reported OR manually assigned. STRICT: the
+  // agent's people.project is NOT used (it leaks linked models). All keys
+  // normalized so "X" and "X.rvt" are the same model.
   const pluginFiles = new Set();
   (metrics || []).forEach((m) => { if (m.source === "revit_plugin" && looksLikeModel(m.project)) pluginFiles.add(normalizeFileName(m.project)); });
   Object.keys(fileToProject).forEach((f) => pluginFiles.add(f));   // manual assignments (already normalized)
-  (people || []).forEach((p) => { if (looksLikeModel(p.project)) pluginFiles.add(normalizeFileName(p.project)); });
 
   // 1) Roll up per-file METRICS into the assigned folder (normalized keys).
   (metrics || []).forEach((m) => {
@@ -281,8 +280,7 @@ export function allFilesSeen(fileMap, people, metrics) {
     if (f.project_id != null) assigned[normalizeFileName(f.file_name)] = f.project_id;
   });
 
-  // best display name + source per normalized key
-  const display = {};   // norm -> nicest display string
+  const display = {};   // norm -> display string
   const sourceOf = {};  // norm -> source
 
   function consider(rawName, source) {
@@ -290,23 +288,24 @@ export function allFilesSeen(fileMap, people, metrics) {
     if (!looksLikeModel(rawName)) return;
     const key = normalizeFileName(rawName);
     if (!key) return;
-    // Prefer a display name WITHOUT extension (cleaner), but keep first seen.
     if (!display[key]) display[key] = key;
-    // plugin source wins as the authority marker
     if (source === "revit_plugin" || !sourceOf[key]) sourceOf[key] = source;
   }
 
-  (metrics || []).forEach((m) => consider(m.project, m.source || "agent"));
-  (people || []).forEach((p) => consider(p.project, "active"));
+  // STRICT: only the Revit PLUGIN can introduce a file into the list. The
+  // plugin reports ONLY the host model the user opened (it rejects IsLinked
+  // documents at source), so links never appear. The agent's window-title
+  // guess (people.project) is NOT used here — that was leaking linked models
+  // like "...000002" into the assignment list.
+  (metrics || []).forEach((m) => { if (m.source === "revit_plugin") consider(m.project, "revit_plugin"); });
 
-  // Always include assigned files (human vouched), even if not currently seen.
-  Object.keys(assigned).forEach((key) => { if (!display[key]) display[key] = key; });
+  // Always include files a human already assigned (they vouched for them).
+  Object.keys(assigned).forEach((key) => { if (!display[key]) { display[key] = key; sourceOf[key] = "manual"; } });
 
-  // Build deduped list keyed by normalized name.
   return Object.keys(display).map((key) => ({
-    file: key,                                   // canonical (normalized) name
+    file: key,
     projectId: assigned[key] ?? null,
-    source: sourceOf[key] || (assigned[key] != null ? "manual" : "active"),
+    source: sourceOf[key] || (assigned[key] != null ? "manual" : "agent"),
   }));
 }
 
