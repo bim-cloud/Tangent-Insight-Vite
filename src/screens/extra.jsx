@@ -257,7 +257,7 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
   const [q, setQ] = useState("");
   const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
 
-  const unassigned = filesSeen.filter((f) => f.projectId == null);
+  const unassigned = filesSeen.filter((f) => f.projectId == null && !f.ignored);
   const active = folders.filter((f) => f.activeUsers > 0).length;
   const totalHours = folders.reduce((a, f) => a + f.totalHours, 0);
   const contributors = new Set();
@@ -303,9 +303,15 @@ export function ProjectsScreen({ data, onPickUser, refresh }) {
                   <Icon name="Box" size={14} color="rgb(var(--warning))" />
                   <span className="mono truncate" style={{ fontSize: 11.5 }}>{f.file}</span>
                 </div>
-                <button className="btn btn-secondary btn-sm" onClick={() => setAssigning({ file: f.file })} style={{ flex: "none" }}>
-                  <Icon name="FolderInput" size={12} /> Assign
-                </button>
+                <div className="row gap-1" style={{ flex: "none" }}>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setAssigning({ file: f.file })}>
+                    <Icon name="FolderInput" size={12} /> Assign
+                  </button>
+                  <button className="btn btn-ghost btn-sm" title="Move to Unassigned folder (hide from this list; restorable in Manage)"
+                    onClick={async () => { const r = await ignoreFile(f.file); if (r.error) toast(r.error, "danger"); else { toast("Moved to Unassigned folder", "success"); refresh?.(); } }}>
+                    <Icon name="Archive" size={12} /> Unassign
+                  </button>
+                </div>
               </div>
             ))}
             {unassigned.length > 6 && <button className="btn btn-ghost btn-sm" onClick={() => setManageOpen(true)}>View all {unassigned.length} →</button>}
@@ -526,6 +532,8 @@ function AssignList({ file, projects, onDone }) {
 // and manually add a Revit file name to assign (for files not yet auto-seen).
 function ManageAssignments({ data, onChange }) {
   const { filesSeen = [], projectRows = [], folders = [] } = data;
+  const activeFiles = filesSeen.filter((f) => !f.ignored);
+  const ignoredFiles = filesSeen.filter((f) => f.ignored);
   const [newFile, setNewFile] = useState("");
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
@@ -557,11 +565,11 @@ function ManageAssignments({ data, onChange }) {
       {err && <div style={{ fontSize: 11.5, color: "rgb(var(--danger))", marginBottom: 8 }}>{err}</div>}
 
       <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-        {filesSeen.length === 0 ? (
+        {activeFiles.length === 0 ? (
           <div className="muted" style={{ fontSize: 12, padding: 12, textAlign: "center" }}>
             No Revit files seen yet. Paste a file name above to start building the structure, or wait for the agent/plugin to report activity.
           </div>
-        ) : filesSeen.map((f) => (
+        ) : activeFiles.map((f) => (
           <div key={f.file} className="between" style={{ padding: "8px 10px", borderRadius: 9, background: "rgb(var(--bg-sunken))" }}>
             <div className="row gap-2" style={{ minWidth: 0, flex: 1 }}>
               <Icon name="Box" size={13} color={f.projectId ? "rgb(var(--accent))" : "rgb(var(--warning))"} />
@@ -577,9 +585,35 @@ function ManageAssignments({ data, onChange }) {
           </div>
         ))}
       </div>
+      {ignoredFiles.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div className="micro" style={{ marginBottom: 6 }}>Unassigned folder · {ignoredFiles.length} file(s) hidden from the banner</div>
+          <div className="col gap-1" style={{ maxHeight: 140, overflowY: "auto" }}>
+            {ignoredFiles.map((f) => (
+              <div key={f.file} className="between" style={{ padding: "6px 10px", borderRadius: 8, background: "rgb(var(--bg-sunken))", opacity: 0.75 }}>
+                <div className="row gap-2" style={{ minWidth: 0, flex: 1 }}>
+                  <Icon name="Archive" size={12} color="rgb(var(--fg-muted))" />
+                  <span className="mono truncate" style={{ fontSize: 10.5 }}>{f.file}</span>
+                </div>
+                <div className="row gap-1" style={{ flex: "none" }}>
+                  <select className="input" value="" onChange={async (e) => { if (!e.target.value) return; const r = await assignFileToProject(f.file, Number(e.target.value)); if (r.error) setErr(r.error); onChange?.(); }}
+                    style={{ width: 150, fontSize: 10.5, padding: "4px 6px" }}>
+                    <option value="">Assign to…</option>
+                    {projectRows.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name}</option>)}
+                  </select>
+                  <button className="btn btn-ghost btn-sm" title="Restore to the needs-assignment list"
+                    onClick={async () => { const r = await assignFileToProject(f.file, null); if (r.error) setErr(r.error); onChange?.(); }}>
+                    <Icon name="RotateCcw" size={11} /> Restore
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="muted" style={{ fontSize: 10.5, marginTop: 10 }}>
-        {filesSeen.filter((f) => f.projectId != null).length} of {filesSeen.length} files assigned.
-        Changing a dropdown moves that model into the chosen project immediately.
+        {activeFiles.filter((f) => f.projectId != null).length} of {activeFiles.length} files assigned.
+        Changing a dropdown moves that model into the chosen project immediately. “Unassign” in the banner parks a file here without assigning it.
       </div>
     </div>
   );
@@ -597,7 +631,7 @@ async function assignFileToProject(file, projectId) {
     const patch = await fetch(SUPABASE_URL + "/rest/v1/project_files?file_name=eq." + encodeURIComponent(norm), {
       method: "PATCH",
       headers: { ...headers, Prefer: "return=representation" },
-      body: JSON.stringify({ project_id: projectId, assigned_at: new Date().toISOString() }),
+      body: JSON.stringify({ project_id: projectId, ignored: false, assigned_at: new Date().toISOString() }),
     });
     if (patch.ok) {
       const rows = await patch.json().catch(() => []);
@@ -608,11 +642,41 @@ async function assignFileToProject(file, projectId) {
     const post = await fetch(SUPABASE_URL + "/rest/v1/project_files", {
       method: "POST",
       headers: { ...headers, Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ file_name: norm, project_id: projectId, assigned_at: new Date().toISOString() }),
+      body: JSON.stringify({ file_name: norm, project_id: projectId, ignored: false, assigned_at: new Date().toISOString() }),
     });
     if (!post.ok) {
       const j = await post.json().catch(() => ({}));
       if (post.status === 401 || post.status === 403) return { error: "Permission denied — run 0010_projects.sql so authenticated users can assign files." };
+      return { error: j.message || ("HTTP " + post.status) };
+    }
+    return {};
+  } catch (e) { return { error: e.message }; }
+}
+
+// Move a file to the Unassigned archive: keeps the row, flags it ignored so it
+// no longer appears in the "needs a project" banner. Restorable anytime.
+async function ignoreFile(file) {
+  const norm = normalizeFileName(file);
+  try {
+    const token = await auth.getValidToken();
+    if (!token) return { error: "Sign in again to change assignments." };
+    const headers = { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token };
+    const patch = await fetch(SUPABASE_URL + "/rest/v1/project_files?file_name=eq." + encodeURIComponent(norm), {
+      method: "PATCH", headers: { ...headers, Prefer: "return=representation" },
+      body: JSON.stringify({ project_id: null, ignored: true }),
+    });
+    if (patch.ok) {
+      const rows = await patch.json().catch(() => []);
+      if (Array.isArray(rows) && rows.length > 0) return {};
+    }
+    const post = await fetch(SUPABASE_URL + "/rest/v1/project_files", {
+      method: "POST", headers: { ...headers, Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ file_name: norm, project_id: null, ignored: true, assigned_at: new Date().toISOString() }),
+    });
+    if (!post.ok) {
+      if (post.status === 401 || post.status === 403) return { error: "Permission denied — run 0010_projects.sql." };
+      const j = await post.json().catch(() => ({}));
+      if (/ignored/.test(j.message || "")) return { error: "Run migration 0017_ignored_files.sql in Supabase first." };
       return { error: j.message || ("HTTP " + post.status) };
     }
     return {};
