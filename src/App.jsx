@@ -88,7 +88,7 @@ export default function App() {
       case "live": return <LiveScreen {...screenProps} />;
       case "teams": return <TeamsScreen {...screenProps} />;
       case "employees": return <EmployeesScreen {...screenProps} onPickUser={setDrawerUser} />;
-      case "attendance": return <AttendanceScreen {...screenProps} />;
+      case "attendance": return <AttendanceScreen {...screenProps} onPickUser={setDrawerUser} />;
       case "analytics": return <AnalyticsScreen {...screenProps} />;
       case "reports": return <ReportsScreen {...screenProps} />;
       case "history": return <HistoryScreen {...screenProps} />;
@@ -121,7 +121,7 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
-      {drawerUser && <EmployeeDrawer person={drawerUser} activity={data.activity} onClose={() => setDrawerUser(null)} />}
+      {drawerUser && <EmployeeDrawer person={drawerUser} activity={data.activity} sessions={data.rawSessions} onClose={() => setDrawerUser(null)} />}
     </ToastProvider>
   );
 }
