@@ -10,6 +10,14 @@ import { SUPABASE_URL, SUPABASE_ANON, normalizeFileName, modelStatsForFiles } fr
 
 const card = { padding: "var(--pad-card)" };
 const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
+// Display a clock value that may be an "HH:MM" string (attendance) or an ISO
+// timestamp. Never returns Invalid Date.
+const fmtClock = (v) => {
+  if (!v) return "—";
+  if (/^\d{1,2}:\d{2}/.test(String(v))) return String(v);
+  const d = new Date(v);
+  return isNaN(d) ? "—" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+};
 const timeAgo = (iso) => {
   if (!iso) return "—";
   const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
@@ -85,8 +93,8 @@ export function EmployeeDrawer({ person, activity, sessions = [], onClose }) {
             <div className="surface-solid" style={{ ...card, marginBottom: 16 }}>
               <div className="micro" style={{ marginBottom: 8 }}>Login / Logout (today)</div>
               <div className="between" style={{ fontSize: 13 }}>
-                <div className="row gap-2"><Icon name="LogIn" size={14} color="rgb(var(--success))" /> {p.loginTime ? new Date(p.loginTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</div>
-                <div className="row gap-2"><Icon name="LogOut" size={14} color="rgb(var(--fg-muted))" /> {p.logoutTime ? new Date(p.logoutTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</div>
+                <div className="row gap-2"><Icon name="LogIn" size={14} color="rgb(var(--success))" /> {fmtClock(p.loginTime)}</div>
+                <div className="row gap-2"><Icon name="LogOut" size={14} color="rgb(var(--fg-muted))" /> {fmtClock(p.logoutTime)}</div>
               </div>
               {!p.loginTime && <div className="muted" style={{ fontSize: 10.5, marginTop: 6 }}>Login/logout times appear once the desktop agent reports session boundaries.</div>}
             </div>
@@ -213,8 +221,8 @@ export function AttendanceScreen({ data, onPickUser }) {
                 <tr key={p.id} className="click" onClick={() => onPickUser?.(p)} style={{ cursor: "pointer" }}>
                   <td><div className="row gap-2"><Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={26} /><span style={{ fontWeight: 600 }}>{p.name}</span></div></td>
                   <td><Pill tone={p.status === "offline" ? "neutral" : "success"} dot>{p.status === "offline" ? "absent" : "present"}</Pill></td>
-                  <td className="muted tabular" style={{ fontSize: 11 }}>{p.loginTime ? new Date(p.loginTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                  <td className="muted tabular" style={{ fontSize: 11 }}>{p.logoutTime ? new Date(p.logoutTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  <td className="muted tabular" style={{ fontSize: 11 }}>{fmtClock(p.loginTime)}</td>
+                  <td className="muted tabular" style={{ fontSize: 11 }}>{fmtClock(p.logoutTime)}</td>
                   <td className="tabular" style={{ color: "rgb(var(--success))" }}>{fmtHM(p.focusMin)}</td>
                   <td className="tabular" style={{ color: "rgb(var(--accent))" }}>{fmtHM(projMin)}</td>
                   <td className="tabular muted">{fmtHM(p.idleMin)}</td>
