@@ -349,8 +349,11 @@ export function isOpenedModel(file, metricsBySource) {
 export function allFilesSeen(fileMap, people, metrics) {
   // assignments keyed by normalized name
   const assigned = {};
+  const ignoredSet = new Set();
   (fileMap || []).forEach((f) => {
-    if (f.project_id != null) assigned[normalizeFileName(f.file_name)] = f.project_id;
+    const key = normalizeFileName(f.file_name);
+    if (f.project_id != null) assigned[key] = f.project_id;
+    if (f.ignored) ignoredSet.add(key);
   });
 
   const display = {};   // norm -> display string
@@ -372,12 +375,15 @@ export function allFilesSeen(fileMap, people, metrics) {
   // like "...000002" into the assignment list.
   (metrics || []).forEach((m) => { if (m.source === "revit_plugin") consider(m.project, "revit_plugin"); });
 
-  // Always include files a human already assigned (they vouched for them).
+  // Always include files a human already assigned (they vouched for them),
+  // and ignored files (so they can be restored from the Unassigned archive).
   Object.keys(assigned).forEach((key) => { if (!display[key]) { display[key] = key; sourceOf[key] = "manual"; } });
+  ignoredSet.forEach((key) => { if (!display[key]) { display[key] = key; sourceOf[key] = "manual"; } });
 
   return Object.keys(display).map((key) => ({
     file: key,
     projectId: assigned[key] ?? null,
+    ignored: ignoredSet.has(key),
     source: sourceOf[key] || (assigned[key] != null ? "manual" : "agent"),
   }));
 }
@@ -396,5 +402,5 @@ function looksLikeModel(name) {
 
 // Files not yet assigned to any folder.
 export function unassignedFiles(fileMap, people, metrics) {
-  return allFilesSeen(fileMap, people, metrics).filter((f) => f.projectId == null).map((f) => f.file);
+  return allFilesSeen(fileMap, people, metrics).filter((f) => f.projectId == null && !f.ignored).map((f) => f.file);
 }
