@@ -6,7 +6,7 @@ import { staggerGrid, riseItem, spring } from "../motion/variants.js";
 import { exportCsv, copyText } from "../lib/util.js";
 import { exportAttendanceXlsx, exportProjectsXlsx, exportReportXlsx } from "../lib/excel.js";
 import { auth } from "../lib/auth.js";
-import { rest, SUPABASE_URL, SUPABASE_ANON } from "../lib/data.js";
+import { rest, SUPABASE_URL, SUPABASE_ANON, projectLabelForFile, dedupeActivity } from "../lib/data.js";
 
 const card = { padding: "var(--pad-card)" };
 const STATUS_COLORS = { online: "#10b981", meeting: "#a78bfa", idle: "#f59e0b", offline: "#475569" };
@@ -17,18 +17,20 @@ function Empty({ children }) {
 
 // ---------- PROJECT MONITORING ----------
 export function RevitScreen({ data }) {
-  const { projects, people = [], filesSeen = [], rawSessions = [] } = data;
+  const { projects, people = [], filesSeen = [], rawSessions = [], fileRows = [], projectRows = [] } = data;
   const [sel, setSel] = useState(null);
   const p = projects.find((x) => x.code === sel);
 
-  // Currently-active models: sessions that are still 'active' (live heartbeat),
-  // or files with very recent activity. These are what users are working on NOW.
+  // Resolve a file to its assigned project label (or the file name if unassigned).
+  const labelFor = (file) => projectLabelForFile(file, fileRows, projectRows).label;
+
+  // Currently-active models: sessions still 'active' (live heartbeat).
   const now = Date.now();
   const activeSessions = (rawSessions || []).filter((s) => s.status === "active" && s.last_heartbeat && (now - new Date(s.last_heartbeat)) < 15 * 60 * 1000);
   const activeByFile = {};
   activeSessions.forEach((s) => {
     const f = s.project;
-    if (!activeByFile[f]) activeByFile[f] = { file: f, users: [], lastBeat: s.last_heartbeat };
+    if (!activeByFile[f]) activeByFile[f] = { file: f, label: labelFor(f), users: [], lastBeat: s.last_heartbeat };
     const who = people.find((pp) => pp.id === s.person_id);
     activeByFile[f].users.push(who ? who.name : s.person_id);
     if (s.last_heartbeat > activeByFile[f].lastBeat) activeByFile[f].lastBeat = s.last_heartbeat;
@@ -50,8 +52,8 @@ export function RevitScreen({ data }) {
             {liveModels.map((m) => (
               <div key={m.file} className="between" style={{ padding: "9px 12px", borderRadius: 10, background: "rgb(var(--bg-sunken))" }}>
                 <div className="row gap-2" style={{ minWidth: 0 }}>
-                  <Icon name="Box" size={14} color="rgb(var(--success))" />
-                  <span className="mono truncate" style={{ fontSize: 11.5, fontWeight: 600 }}>{m.file}</span>
+                  <Icon name={m.label !== m.file ? "Folder" : "Box"} size={14} color="rgb(var(--success))" />
+                  <span className="truncate" style={{ fontSize: 12, fontWeight: 600 }}>{m.label}</span>
                   <Pill tone="success" dot>Active</Pill>
                 </div>
                 <span className="muted truncate" style={{ fontSize: 11, flex: "none", maxWidth: 200 }}>{[...new Set(m.users)].join(", ")}</span>
@@ -169,27 +171,31 @@ function Metric({ label, value, tone, big }) {
 
 // ---------- LIVE USERS ----------
 export function LiveScreen({ data }) {
-  const { people, activity } = data;
+  const { people, activity, rawSessions = [], fileRows = [], projectRows = [] } = data;
   const online = people.filter((p) => p.status !== "offline");
+  const labelFor = (file) => projectLabelForFile(file, fileRows, projectRows).label;
+  // Active sessions = current projects being worked on right now.
+  const now = Date.now();
+  const activeNow = (rawSessions || []).filter((s) => s.status === "active" && s.last_heartbeat && (now - new Date(s.last_heartbeat)) < 15 * 60 * 1000);
   return (
     <motion.div variants={staggerGrid} initial="initial" animate="animate">
       <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px,1fr))" }} variants={staggerGrid}>
         <Stat icon="Radio" label="Online now" value={online.length} grad="var(--grad-emerald)" />
-        <Stat icon="Video" label="In meetings" value={people.filter((p) => p.status === "meeting").length} grad="var(--grad-violet)" />
+        <Stat icon="Box" label="Active in Revit" value={activeNow.length} grad="var(--grad-cyan)" />
         <Stat icon="Moon" label="Idle" value={people.filter((p) => p.status === "idle").length} grad="var(--grad-amber)" />
-        <Stat icon="Zap" label="Events/hr" value={activity.filter((a) => a.t <= 60).length} grad="var(--grad-cyan)" />
+        <Stat icon="Video" label="In meetings" value={people.filter((p) => p.status === "meeting").length} grad="var(--grad-violet)" />
       </motion.div>
       <motion.div className="surface" style={{ ...card, marginTop: 16 }} variants={riseItem}>
         <CardTitle title="Who's working now" subtitle={online.length + " active"} icon="Users"
-          right={<button className="btn btn-secondary btn-sm" onClick={() => exportCsv("live-users", online.map((p) => ({ name: p.name, status: p.status, project: p.project, hours: p.hours })))}><Icon name="Download" size={12} /> Export</button>} />
-        {online.length === 0 ? <Empty>No one is online right now.</Empty> : (
+          right={<button className="btn btn-secondary btn-sm" onClick={() => exportCsv("live-users", online.map((p) => ({ name: p.name, status: p.status, project: labelFor(p.project), hours: p.hours })))}><Icon name="Download" size={12} /> Export</button>} />
+        {online.length === 0 ? <Empty>No one is online right now. Presence comes from the desktop agent — if this is empty, the agent isn't reporting status.</Empty> : (
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px,1fr))" }}>
             {online.map((p) => (
               <motion.div key={p.id} variants={riseItem} className="row gap-3" style={{ padding: 10, borderRadius: 12, background: "rgb(var(--bg-sunken))" }}>
                 <Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={38} />
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div className="truncate" style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
-                  <div className="truncate muted" style={{ fontSize: 11 }}>{p.project !== "—" ? p.project : p.role}</div>
+                  <div className="truncate muted" style={{ fontSize: 11 }}>{p.project !== "—" ? labelFor(p.project) : p.role}</div>
                 </div>
                 <Pill tone={p.status === "meeting" ? "info" : p.status === "idle" ? "warning" : "success"} dot>{p.status}</Pill>
               </motion.div>
@@ -411,10 +417,11 @@ function Field({ label, children }) { return <div><div className="micro" style={
 
 // ---------- HISTORY ----------
 export function HistoryScreen({ data }) {
-  const { activity, people } = data;
+  const { activity, people, fileRows = [], projectRows = [] } = data;
   const [kind, setKind] = useState("all");
-  const kinds = [...new Set(activity.map((a) => a.kind))];
-  const rows = activity.filter((a) => kind === "all" || a.kind === kind);
+  const deduped = dedupeActivity(activity, fileRows, projectRows);
+  const kinds = [...new Set(deduped.map((a) => a.kind))];
+  const rows = deduped.filter((a) => kind === "all" || a.kind === kind);
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className="between" style={{ marginBottom: 14 }}>
@@ -422,7 +429,7 @@ export function HistoryScreen({ data }) {
           <button className={kind === "all" ? "on" : ""} onClick={() => setKind("all")}>All</button>
           {kinds.map((k) => <button key={k} className={kind === k ? "on" : ""} onClick={() => setKind(k)}>{k}</button>)}
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={() => exportCsv("activity-history", rows.map((a) => ({ occurred_at: a.at, kind: a.kind, who: people.find((p) => p.id === a.user)?.name || "", project: a.project, detail: a.detail })))}><Icon name="Download" size={12} /> Export</button>
+        <button className="btn btn-secondary btn-sm" onClick={() => exportCsv("activity-history", rows.map((a) => ({ occurred_at: a.at, kind: a.kind, who: people.find((p) => p.id === a.user)?.name || "", project: a.projectLabel, detail: a.detail })))}><Icon name="Download" size={12} /> Export</button>
       </div>
       <div className="surface" style={{ padding: 0, overflow: "hidden" }}>
         <table>
@@ -430,7 +437,7 @@ export function HistoryScreen({ data }) {
           <tbody>
             {rows.slice(0, 200).map((a) => {
               const u = people.find((p) => p.id === a.user);
-              return <tr key={a.id}><td className="muted tabular" style={{ fontSize: 11 }}>{a.at ? new Date(a.at).toLocaleString("en-GB") : "—"}</td><td><Pill tone="neutral">{a.kind}</Pill></td><td>{u ? u.name : "—"}</td><td className="mono" style={{ fontSize: 11.5 }}>{a.project}</td><td style={{ fontSize: 12 }}>{a.detail}</td></tr>;
+              return <tr key={a.id}><td className="muted tabular" style={{ fontSize: 11 }}>{a.at ? new Date(a.at).toLocaleString("en-GB") : "—"}</td><td><Pill tone="neutral">{a.kind}</Pill></td><td>{u ? u.name : "—"}</td><td style={{ fontSize: 11.5, fontWeight: a.projectId ? 600 : 400 }}>{a.projectLabel}</td><td style={{ fontSize: 12 }}>{a.detail}</td></tr>;
             })}
           </tbody>
         </table>
@@ -517,29 +524,46 @@ export function AdminScreen({ data, me }) {
 // ---------- SETTINGS ----------
 export function SettingsScreen({ data, me, refresh }) {
   const ROLES = ["BIM Manager", "Assistant BIM Manager", "BIM Coordinator", "BIM Modeler", "Senior Modeler", "Modeler", "Detailer", "Project Manager", "Landscape Architect", "Architect", "Automation Specialist", "Staff"];
-  const DEPTS = ["BIM", "Landscape", "Architecture", "Detailing", "Engineering", "PM", "IT", "Admin", "Unassigned"];
-  const DISCS = ["MANAGER", "COORDINATOR", "MODELER", "DETAILER", "UNASSIGNED"];
+  const DEPTS = ["BIM", "Design", "AutoCAD", "Irrigation", "MEP", "Landscape", "Architecture", "Detailing", "Engineering", "PM", "IT", "Admin", "Unassigned"];
+  const DISCS = ["MANAGER", "COORDINATOR", "MODELER", "DETAILER", "DESIGNER", "UNASSIGNED"];
+  const email = auth.getSession()?.user?.email || "";
+  const nameFromEmail = (e) => e ? e.split("@")[0].split(/[._-]+/).map((w) => w[0]?.toUpperCase() + w.slice(1)).join(" ") : "—";
   const [role, setRole] = useState(me?.role || "");
   const [dept, setDept] = useState(me?.dept || "");
   const [disc, setDisc] = useState(me?.discipline || "UNASSIGNED");
   const [status, setStatus] = useState(null);
-  const dirty = me && (role !== me.role || dept !== me.dept || disc !== me.discipline);
-  const nameFromEmail = (e) => e ? e.split("@")[0].split(/[._-]+/).map((w) => w[0]?.toUpperCase() + w.slice(1)).join(" ") : "—";
+  const dirty = !me || (role !== me.role || dept !== me.dept || disc !== me.discipline);
 
   async function save() {
-    if (!me) { setStatus({ t: "err", m: "Your sign-in email doesn't match a staff row. Ask an admin to align public.people." }); return; }
     setStatus({ t: "load", m: "Saving…" });
     try {
       const token = await auth.getValidToken();
       if (!token) { setStatus({ t: "err", m: "Session expired — sign in again." }); return; }
-      const r = await fetch(SUPABASE_URL + "/rest/v1/people?id=eq." + encodeURIComponent(me.id), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token, Prefer: "return=minimal" },
-        body: JSON.stringify({ role, dept, discipline: disc }),
-      });
-      if (!r.ok) { const j = await r.json().catch(() => ({})); const msg = j.message || ("HTTP " + r.status);
+      const headers = { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + token };
+
+      // Does a people row exist for this email? (me may be a fallback with id=email)
+      const realId = me && me.id && me.id !== email ? me.id : null;
+      const body = { name: me?.name || nameFromEmail(email), email, role, dept, discipline: disc };
+
+      let r;
+      if (realId) {
+        // Update existing row.
+        r = await fetch(SUPABASE_URL + "/rest/v1/people?id=eq." + encodeURIComponent(realId), {
+          method: "PATCH", headers: { ...headers, Prefer: "return=minimal" },
+          body: JSON.stringify({ role, dept, discipline: disc }),
+        });
+      } else {
+        // No row yet — upsert by email so the profile is created + saved.
+        r = await fetch(SUPABASE_URL + "/rest/v1/people?on_conflict=email", {
+          method: "POST", headers: { ...headers, Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify(body),
+        });
+      }
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({})); const msg = j.message || ("HTTP " + r.status);
         if (r.status === 401 || r.status === 403 || /permission|policy/i.test(msg)) throw new Error("Permission denied — run migration 0005_self_edit_policy.sql in Supabase. (" + msg + ")");
-        throw new Error(msg); }
+        throw new Error(msg);
+      }
       setStatus({ t: "ok", m: "Saved." });
       refresh?.();
     } catch (e) { setStatus({ t: "err", m: e.message }); }

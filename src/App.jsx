@@ -65,7 +65,14 @@ export default function App() {
   const me = useMemo(() => {
     const email = session?.user?.email;
     if (!email) return null;
-    return data.people.find((p) => (p.email || "").toLowerCase() === email.toLowerCase()) || null;
+    const found = data.people.find((p) => (p.email || "").toLowerCase() === email.toLowerCase());
+    if (found && found.name && found.name !== "—") return found;
+    // Fallback: derive a display name from the email local-part so the UI never
+    // shows a dash. e.g. "anshu.jalaludeen@..." -> "Anshu Jalaludeen".
+    const local = email.split("@")[0].replace(/[._-]+/g, " ").trim();
+    const nice = local.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    const initials = nice.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+    return { ...(found || {}), id: found?.id || email, name: nice || email, email, initials, discipline: found?.discipline || "BIM", status: found?.status || "online" };
   }, [session, data.people]);
 
   const cycleMotion = () => setMotionQuality((q) => MOTION_ORDER[(MOTION_ORDER.indexOf(q) + 1) % MOTION_ORDER.length]);

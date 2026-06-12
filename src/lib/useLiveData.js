@@ -61,7 +61,7 @@ export function useLiveData() {
 
       setData({
         people, projects, activity: acts, attendance,
-        kpis: computeKpis(people, projects),
+        kpis: computeKpis(people, projects, rawSessions),
         heatmap: buildHeatmap(acts),
         fleet: { total: mach.length, online, offline: mach.length - online },
         machines: mach,

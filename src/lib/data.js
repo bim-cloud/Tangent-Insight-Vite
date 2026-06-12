@@ -66,6 +66,41 @@ export function normalizeFileName(name) {
   return n;
 }
 
+// Resolve a Revit file to its assigned project label, if assigned.
+// fileMap: project_files rows; projects: projects rows.
+// Returns { label, projectId } — label is the project name if assigned,
+// otherwise the (normalized) file name itself.
+export function projectLabelForFile(file, fileMap, projects) {
+  const key = normalizeFileName(file);
+  const assign = (fileMap || []).find((f) => normalizeFileName(f.file_name) === key && f.project_id != null);
+  if (assign) {
+    const proj = (projects || []).find((p) => p.id === assign.project_id);
+    if (proj) return { label: proj.full_label || (proj.code + " " + proj.name), projectId: proj.id, code: proj.code, name: proj.name };
+  }
+  return { label: key, projectId: null, code: null, name: key };
+}
+
+// Deduplicate activity events: collapse consecutive identical events (same
+// user + kind + project within a short window) into one, and resolve the
+// project file to its assigned project label. Eliminates the "opened 5 times"
+// noise and shows project folder names.
+export function dedupeActivity(activity, fileMap, projects) {
+  const sorted = [...(activity || [])].sort((a, b) => (b.at || "").localeCompare(a.at || ""));
+  const out = [];
+  const seen = new Map();   // key -> last kept timestamp
+  for (const a of sorted) {
+    const proj = projectLabelForFile(a.project, fileMap, projects);
+    const key = a.user + "|" + a.kind + "|" + (proj.projectId ?? proj.label);
+    const ts = a.at ? new Date(a.at).getTime() : 0;
+    const prev = seen.get(key);
+    // skip if an identical event was kept within 10 minutes
+    if (prev != null && Math.abs(prev - ts) < 10 * 60 * 1000) continue;
+    seen.set(key, ts);
+    out.push({ ...a, projectLabel: proj.label, projectId: proj.projectId });
+  }
+  return out;
+}
+
 export function deriveProjects(people) {
   const byCentral = {};
   people.forEach((p) => {
@@ -105,18 +140,31 @@ export function mergeMetrics(projects, metrics) {
   return projects;
 }
 
-export function computeKpis(people, projects) {
+export function computeKpis(people, projects, sessions) {
   const online = people.filter((p) => p.status !== "offline").length;
   const meeting = people.filter((p) => p.status === "meeting").length;
-  const totalHours = people.reduce((a, p) => a + p.hours, 0);
+  const agentHours = people.reduce((a, p) => a + p.hours, 0);
   const totalOt = people.reduce((a, p) => a + p.ot, 0);
   const activeProjects = projects.filter((p) => p.activeUsers > 0).length;
+
+  // Project work hours from sessions today (time recorded in assigned models).
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const projectSeconds = (sessions || [])
+    .filter((s) => s.started_at && s.started_at.startsWith(todayStr))
+    .reduce((a, s) => a + (s.duration_seconds || 0), 0);
+  const projectHours = projectSeconds / 3600;
+
+  // "Active Work Hours" = the greater of agent-tracked active time and project
+  // session time, since they measure overlapping activity (avoid double-count).
+  // If you'd rather strictly SUM them, change Math.max to (agentHours + projectHours).
+  const activeHours = Math.max(agentHours, projectHours);
+
   const spark = (base) => Array.from({ length: 12 }, (_, i) => base * (0.6 + 0.4 * Math.sin(i / 2)));
   return [
     { key: "projects", label: "Active Revit Projects", value: activeProjects, delta: 0, icon: "FolderKanban", grad: "var(--grad-cyan)", spark: spark(activeProjects || 1) },
     { key: "online", label: "Users Online Now", value: online, delta: 0, icon: "Users", grad: "var(--grad-emerald)", spark: spark(online || 1) },
     { key: "meeting", label: "In Teams Meetings", value: meeting, delta: 0, icon: "Video", grad: "var(--grad-violet)", spark: spark(meeting || 1) },
-    { key: "hours", label: "Active Work Hours · Today", value: +totalHours.toFixed(1), suffix: "h", delta: 0, icon: "Clock", grad: "var(--grad-cyan)", spark: spark(totalHours || 1) },
+    { key: "hours", label: "Active Work Hours · Today", value: +activeHours.toFixed(1), suffix: "h", delta: 0, icon: "Clock", grad: "var(--grad-cyan)", spark: spark(activeHours || 1) },
     { key: "overtime", label: "Overtime · Today", value: +totalOt.toFixed(1), suffix: "h", delta: 0, icon: "Timer", grad: "var(--grad-amber)", spark: spark(totalOt || 1) },
     { key: "staff", label: "Total Staff Tracked", value: people.length, delta: 0, icon: "UserCheck", grad: "var(--grad-violet)", spark: spark(people.length || 1) },
   ];
