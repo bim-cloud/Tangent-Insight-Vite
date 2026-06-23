@@ -16,7 +16,7 @@ export function useLiveData() {
   const load = useCallback(async () => {
     const today = new Date().toISOString().slice(0, 10);
     try {
-      const [people_r, acts_r, att_r, mach_r, metrics_r, projects_r, files_r, sessions_r, rawsessions_r, teams_r] = await Promise.allSettled([
+      const [people_r, acts_r, att_r, mach_r, metrics_r, projects_r, files_r, sessions_r, rawsessions_r, teams_r, attpolicy_r] = await Promise.allSettled([
         rest("people", "order=name"),
         rest("activity_events", "order=occurred_at.desc&limit=200"),
         rest("attendance", "work_date=eq." + today),
@@ -27,6 +27,7 @@ export function useLiveData() {
         rest("v_project_user_time", "select=*"),
         rest("work_sessions", "select=*&order=started_at.desc&limit=500"),
         rest("activity_events", "kind=eq.teams&order=occurred_at.desc&limit=50"),
+        rest("v_attendance_today", "select=*"),
       ]);
 
       if (people_r.status !== "fulfilled" || !Array.isArray(people_r.value)) {
@@ -67,6 +68,28 @@ export function useLiveData() {
       const sessionRows = sessions_r.status === "fulfilled" && Array.isArray(sessions_r.value) ? sessions_r.value : [];
       const rawSessions = rawsessions_r.status === "fulfilled" && Array.isArray(rawsessions_r.value) ? rawsessions_r.value : [];
       const teamsEvents = teams_r.status === "fulfilled" && Array.isArray(teams_r.value) ? teams_r.value.map(mapEvent) : [];
+      // Policy-based attendance (computed in SQL from raw samples).
+      const attPolicy = attpolicy_r.status === "fulfilled" && Array.isArray(attpolicy_r.value) ? attpolicy_r.value : [];
+      const attByPerson = {};
+      attPolicy.forEach((a) => { attByPerson[a.person_id] = a; });
+      // Merge policy figures into each person (authoritative over trigger snapshot).
+      people.forEach((p) => {
+        const a = attByPerson[p.id];
+        if (a) {
+          p.focusMin = a.active_minutes ?? p.focusMin;
+          p.idleMin = a.idle_minutes ?? p.idleMin;
+          p.lunchMin = a.lunch_minutes ?? 0;
+          p.hours = +((a.active_minutes || 0) / 60).toFixed(2);
+          p.utilization = (a.active_minutes + a.idle_minutes) > 0 ? Math.round(100 * a.active_minutes / (a.active_minutes + a.idle_minutes)) : 0;
+          p.isLate = a.is_late;
+          p.attStatus = a.status;
+          p.regularMin = a.regular_minutes ?? 0;
+          p.overtimeMin = a.overtime_minutes ?? 0;
+          p.ot = +((a.overtime_minutes || 0) / 60).toFixed(2);
+          if (a.first_in) p.loginTime = a.first_in;
+          if (a.last_out) p.logoutTime = a.last_out;
+        }
+      });
       const folders = buildProjectFolders(projectRows, fileRows, people, metricRows, sessionRows);
       const unassigned = unassignedFiles(fileRows, people, metricRows);
       const filesSeen = allFilesSeen(fileRows, people, metricRows);
@@ -78,7 +101,7 @@ export function useLiveData() {
         fleet: { total: mach.length, online, offline: mach.length - online },
         machines: mach,
         folders, unassigned, filesSeen,
-        projectRows, fileRows, sessionRows, rawSessions, teamsEvents,
+        projectRows, fileRows, sessionRows, rawSessions, teamsEvents, attPolicy,
       });
       setLive(true);
       setLastSync(new Date());
