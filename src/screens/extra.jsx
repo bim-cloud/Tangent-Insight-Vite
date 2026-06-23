@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from "recharts";
 import { Icon, CardTitle, Avatar, Pill } from "../components/primitives.jsx";
@@ -6,7 +6,7 @@ import { spring, staggerGrid, riseItem } from "../motion/variants.js";
 import { exportAttendanceXlsx, exportReportXlsx } from "../lib/excel.js";
 import { exportCsv, toast } from "../lib/util.js";
 import { auth } from "../lib/auth.js";
-import { SUPABASE_URL, SUPABASE_ANON, normalizeFileName, modelStatsForFiles } from "../lib/data.js";
+import { SUPABASE_URL, SUPABASE_ANON, normalizeFileName, modelStatsForFiles, rest } from "../lib/data.js";
 
 const card = { padding: "var(--pad-card)" };
 const fmtHM = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
@@ -119,6 +119,9 @@ export function EmployeeDrawer({ person, activity, sessions = [], onClose }) {
               )}
             </div>
 
+            {/* attendance calendar */}
+            <AttendanceCalendar personId={p.id} />
+
             {/* session history with timestamps */}
             {userSessions.length > 0 && (
               <div className="surface-solid" style={{ ...card, marginBottom: 16 }}>
@@ -202,9 +205,9 @@ export function AttendanceScreen({ data, onPickUser }) {
       <motion.div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))" }} variants={staggerGrid}>
         <ATile icon="UserCheck" label="Present" value={present.length} grad="var(--grad-emerald)" />
         <ATile icon="UserX" label="Offline" value={people.length - present.length} grad="var(--grad-navy)" />
-        <ATile icon="Clock" label="Screen time" value={fmtHM(people.reduce((a, p) => a + p.focusMin, 0))} grad="var(--grad-cyan)" />
-        <ATile icon="Box" label="Project time" value={fmtHM(Object.values(projMinByUser).reduce((a, b) => a + b, 0))} grad="var(--grad-violet)" />
-        <ATile icon="Moon" label="Idle time" value={fmtHM(people.reduce((a, p) => a + p.idleMin, 0))} grad="var(--grad-amber)" />
+        <ATile icon="Clock" label="Active time" value={fmtHM(people.reduce((a, p) => a + p.focusMin, 0))} grad="var(--grad-cyan)" />
+        <ATile icon="Timer" label="Overtime" value={fmtHM(people.reduce((a, p) => a + (p.overtimeMin || 0), 0))} grad="var(--grad-violet)" />
+        <ATile icon="Moon" label="Idle/Offline" value={fmtHM(people.reduce((a, p) => a + p.idleMin, 0))} grad="var(--grad-amber)" />
       </motion.div>
       <motion.div className="surface" style={{ ...card, marginTop: 16, padding: 0, overflow: "hidden" }} variants={riseItem}>
         <div className="between" style={{ padding: "14px 16px" }}>
@@ -212,7 +215,7 @@ export function AttendanceScreen({ data, onPickUser }) {
           <button className="btn btn-primary btn-sm" onClick={() => exportAttendanceXlsx(people, { rangeLabel: "Today" })}><Icon name="FileSpreadsheet" size={12} /> Export Excel</button>
         </div>
         <table>
-          <thead><tr><th>Employee</th><th>Status</th><th>First in</th><th>Last out</th><th>Screen</th><th>Project</th><th>Idle</th><th>Total</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Arrival</th><th>First in</th><th>Last out</th><th>Active</th><th>Regular</th><th>Overtime</th><th>Idle/Off</th></tr></thead>
           <tbody>
             {people.map((p) => {
               const projMin = projMinByUser[p.id] || 0;
@@ -220,13 +223,13 @@ export function AttendanceScreen({ data, onPickUser }) {
               return (
                 <tr key={p.id} className="click" onClick={() => onPickUser?.(p)} style={{ cursor: "pointer" }}>
                   <td><div className="row gap-2"><Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={26} /><span style={{ fontWeight: 600 }}>{p.name}</span></div></td>
-                  <td><Pill tone={p.status === "offline" ? "neutral" : "success"} dot>{p.status === "offline" ? "absent" : "present"}</Pill></td>
+                  <td><Pill tone={p.loginTime ? (p.isLate ? "warning" : "success") : "neutral"} dot>{p.loginTime ? (p.isLate ? "late" : "on time") : "—"}</Pill></td>
                   <td className="muted tabular" style={{ fontSize: 11 }}>{fmtClock(p.loginTime)}</td>
                   <td className="muted tabular" style={{ fontSize: 11 }}>{fmtClock(p.logoutTime)}</td>
-                  <td className="tabular" style={{ color: "rgb(var(--success))" }}>{fmtHM(p.focusMin)}</td>
-                  <td className="tabular" style={{ color: "rgb(var(--accent))" }}>{fmtHM(projMin)}</td>
+                  <td className="tabular" style={{ color: "rgb(var(--success))", fontWeight: 600 }}>{fmtHM(p.focusMin)}</td>
+                  <td className="tabular">{fmtHM(p.regularMin || 0)}</td>
+                  <td className="tabular" style={{ color: (p.overtimeMin || 0) > 0 ? "rgb(var(--warning))" : "rgb(var(--fg-muted))" }}>{fmtHM(p.overtimeMin || 0)}</td>
                   <td className="tabular muted">{fmtHM(p.idleMin)}</td>
-                  <td className="tabular" style={{ fontWeight: 600 }}>{fmtHM(totalMin)}</td>
                 </tr>
               );
             })}
@@ -235,7 +238,7 @@ export function AttendanceScreen({ data, onPickUser }) {
       </motion.div>
       <div className="surface" style={{ ...card, marginTop: 14 }}>
         <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-          <b>Screen time</b> = active input time (agent). <b>Project time</b> = time in Revit models (plugin sessions). <b>Idle</b> = inactive periods. First-in/last-out come from the day's first and last agent samples. Click any user for their full login/logout history, session timeline, and project-wise hours.
+          <b>Active</b> = real keyboard/mouse working time. <b>Regular</b> = active up to 9h (excl. post-18:15). <b>Overtime</b> = active beyond 9h or after 18:15. <b>Idle/Off</b> = short idle gaps; inactivity over 15 min is offline and not counted. Lunch (13:00–14:00) is excluded. Click any user for their attendance calendar and session timeline.
         </div>
       </div>
     </motion.div>
@@ -758,4 +761,73 @@ function MiniStat({ label, value }) {
     <div className="micro" style={{ fontSize: 9 }}>{label}</div>
     <div className="tabular" style={{ fontSize: 15, fontWeight: 700, marginTop: 1 }}>{value}</div>
   </div>;
+}
+
+
+// Monthly attendance calendar for a user (policy-based, from SQL).
+function AttendanceCalendar({ personId }) {
+  const [rows, setRows] = useState(null);
+  const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  useEffect(() => {
+    let alive = true;
+    const from = new Date(month.getFullYear(), month.getMonth(), 1).toISOString().slice(0, 10);
+    const to = new Date(month.getFullYear(), month.getMonth() + 1, 0).toISOString().slice(0, 10);
+    setRows(null);
+    rest("rpc/attendance_range", "", null, { method: "POST", body: { p_person: personId, p_from: from, p_to: to } })
+      .then((r) => { if (alive) setRows(Array.isArray(r) ? r : []); })
+      .catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [personId, month]);
+
+  const byDate = {};
+  (rows || []).forEach((r) => { byDate[r.work_date] = r; });
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const startDow = (first.getDay() + 6) % 7; // Mon=0
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const monthLabel = month.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  const fmtH = (m) => m ? (m >= 60 ? Math.floor(m / 60) + "h" : m + "m") : "";
+
+  return (
+    <div className="surface-solid" style={{ ...card, marginBottom: 16 }}>
+      <div className="between" style={{ marginBottom: 8 }}>
+        <span className="micro">Attendance calendar</span>
+        <div className="row gap-1">
+          <button className="btn btn-ghost btn-icon" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><Icon name="ChevronLeft" size={13} /></button>
+          <span style={{ fontSize: 11.5, fontWeight: 600, minWidth: 96, textAlign: "center" }}>{monthLabel}</span>
+          <button className="btn btn-ghost btn-icon" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><Icon name="ChevronRight" size={13} /></button>
+        </div>
+      </div>
+      {rows === null ? <div className="muted" style={{ fontSize: 11, padding: 8 }}>Loading…</div> : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
+            {["M","T","W","T","F","S","S"].map((d, i) => <div key={i} className="muted" style={{ fontSize: 9, textAlign: "center", padding: "2px 0" }}>{d}</div>)}
+            {cells.map((d, i) => {
+              if (!d) return <div key={i} />;
+              const ds = new Date(month.getFullYear(), month.getMonth(), d).toISOString().slice(0, 10);
+              const rec = byDate[ds];
+              const present = rec && (rec.active_minutes > 0 || rec.first_in);
+              const late = rec && rec.is_late;
+              const bg = !present ? "rgb(var(--bg-sunken))" : late ? "rgb(var(--warning)/0.18)" : "rgb(var(--success)/0.18)";
+              const fg = !present ? "rgb(var(--fg-muted))" : late ? "rgb(var(--warning))" : "rgb(var(--success))";
+              return (
+                <div key={i} title={rec ? `${fmtClock(rec.first_in)}–${fmtClock(rec.last_out)} · active ${fmtH(rec.active_minutes)}${late ? " · late" : ""}` : "no record"}
+                  style={{ background: bg, color: fg, borderRadius: 6, padding: "5px 0", textAlign: "center", fontSize: 10.5, fontWeight: present ? 600 : 400 }}>
+                  {d}
+                  {present && <div style={{ fontSize: 7.5, opacity: 0.8 }}>{fmtH(rec.active_minutes)}</div>}
+                </div>
+              );
+            })}
+          </div>
+          <div className="row gap-3" style={{ marginTop: 8, fontSize: 9.5 }}>
+            <span className="row gap-1"><span style={{ width: 8, height: 8, borderRadius: 2, background: "rgb(var(--success)/0.5)" }} /> on time</span>
+            <span className="row gap-1"><span style={{ width: 8, height: 8, borderRadius: 2, background: "rgb(var(--warning)/0.5)" }} /> late</span>
+            <span className="row gap-1"><span style={{ width: 8, height: 8, borderRadius: 2, background: "rgb(var(--bg-sunken))" }} /> absent</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
