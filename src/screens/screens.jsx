@@ -23,7 +23,7 @@ export function RevitScreen({ data }) {
   // Monitoring shows project FOLDERS that have models assigned (or activity).
   const monFolders = folders.filter((f) => f.files.length > 0 || f.users.length > 0)
     .sort((a, b) => (b.activeUsers - a.activeUsers) || (b.totalHours - a.totalHours));
-  const unassignedHere = filesSeen.filter((x) => x.projectId == null && !x.ignored);
+  const unassignedHere = filesSeen.filter((x) => x.projectId == null);
   const selFolder = folders.find((x) => x.id === sel);
 
   // Resolve a file to its assigned project label (or the file name if unassigned).
@@ -242,15 +242,15 @@ export function LiveScreen({ data }) {
         <CardTitle title="Who's working now" subtitle={online.length + " active"} icon="Users"
           right={<button className="btn btn-secondary btn-sm" onClick={() => exportCsv("live-users", online.map((p) => ({ name: p.name, status: p.status, project: labelFor(p.project), hours: p.hours })))}><Icon name="Download" size={12} /> Export</button>} />
         {online.length === 0 ? <Empty>No one is online right now. Presence comes from the desktop agent — if this is empty, the agent isn't reporting status.</Empty> : (
-          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px,1fr))" }}>
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px,1fr))" }}>
             {online.map((p) => (
-              <motion.div key={p.id} variants={riseItem} className="row gap-3" style={{ padding: 12, borderRadius: 12, background: "rgb(var(--bg-sunken))", alignItems: "flex-start" }}>
+              <motion.div key={p.id} variants={riseItem} className="row gap-3" style={{ padding: 10, borderRadius: 12, background: "rgb(var(--bg-sunken))" }}>
                 <Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={38} />
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3, wordBreak: "break-word" }}>{p.name}</div>
-                  <div className="muted" style={{ fontSize: 11, lineHeight: 1.35, wordBreak: "break-word" }}>{p.project !== "—" ? labelFor(p.project) : p.role}</div>
-                  <div style={{ marginTop: 6 }}><Pill tone={richStatus(p).tone} dot>{richStatus(p).label}</Pill></div>
+                  <div className="truncate" style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
+                  <div className="truncate muted" style={{ fontSize: 11 }}>{p.project !== "—" ? labelFor(p.project) : p.role}</div>
                 </div>
+                <Pill tone={richStatus(p).tone} dot>{richStatus(p).label}</Pill>
               </motion.div>
             ))}
           </div>
@@ -272,12 +272,9 @@ function Stat({ icon, label, value, grad }) {
 
 // ---------- TEAMS ACTIVITY ----------
 export function TeamsScreen({ data }) {
-  const { people, activity, teamsEvents: dedicated = [] } = data;
+  const { people, activity } = data;
   const inCall = people.filter((p) => p.status === "meeting");
-  // Use the dedicated teams-events query (last 50, any age) — the general
-  // activity feed only holds the latest 200 events of ALL kinds, so Teams
-  // events can fall outside it and wrongly display as zero.
-  const teamsEvents = dedicated.length ? dedicated : activity.filter((a) => a.kind === "teams");
+  const teamsEvents = activity.filter((a) => a.kind === "teams");
   return (
     <motion.div variants={staggerGrid} initial="initial" animate="animate">
       <motion.div className="surface" style={card} variants={riseItem}>
@@ -345,7 +342,11 @@ export function EmployeesScreen({ data, onPickUser }) {
                 <tr key={p.id}>
                   <td><button className="row gap-2" onClick={() => onPickUser?.(p)} style={{ textAlign: "left" }}><Avatar name={p.name} initials={p.initials} discipline={p.discipline} status={p.status} size={28} /><div><div style={{ fontWeight: 600 }}>{p.name}</div><div className="muted" style={{ fontSize: 10.5 }}>{p.role}</div></div></button></td>
                   <td className="muted">{p.dept}</td>
-                  <td><Pill tone={p.status === "online" ? "success" : p.status === "meeting" ? "info" : p.status === "idle" ? "warning" : "neutral"} dot>{p.status}</Pill></td>
+                  <td>{
+                    p.attStatus === "ABSENT" ? <Pill tone="danger" dot>absent</Pill> :
+                    p.attStatus === "ON_LEAVE" ? <Pill tone="info" dot>on leave</Pill> :
+                    <Pill tone={p.status === "online" ? "success" : p.status === "meeting" ? "info" : p.status === "idle" ? "warning" : "neutral"} dot>{p.status}</Pill>
+                  }</td>
                   <td className="tabular" style={{ color: "rgb(var(--success))" }}>{fmtHM(p.focusMin)}</td>
                   <td className="tabular muted">{fmtHM(p.idleMin)}</td>
                   <td className="tabular" style={{ color: "rgb(var(--accent))" }}>{fmtHM(revitMinBy[p.id] || 0)}</td>
