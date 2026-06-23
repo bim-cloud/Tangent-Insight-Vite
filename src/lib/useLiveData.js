@@ -82,9 +82,10 @@ export function useLiveData() {
           p.hours = +((a.active_minutes || 0) / 60).toFixed(2);
           p.utilization = (a.active_minutes + a.idle_minutes) > 0 ? Math.round(100 * a.active_minutes / (a.active_minutes + a.idle_minutes)) : 0;
           p.isLate = a.is_late;
-          p.attStatus = a.status;
+          p.attStatus = a.status;          // ON_TIME | LATE | ABSENT | ON_LEAVE
           p.regularMin = a.regular_minutes ?? 0;
           p.overtimeMin = a.overtime_minutes ?? 0;
+          p.breakMin = a.break_minutes ?? 0;
           p.ot = +((a.overtime_minutes || 0) / 60).toFixed(2);
           if (a.first_in) p.loginTime = a.first_in;
           if (a.last_out) p.logoutTime = a.last_out;
